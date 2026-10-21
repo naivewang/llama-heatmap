@@ -101,7 +101,7 @@
         <span><i style="background:#1d4ed8"></i>prefill</span>
         <span><i style="background:#166534"></i>generated</span>
         <span><i style="background:#495059"></i>idle</span>
-        <span><i style="background:#9a3412"></i>processing (detail view)</span>
+        <span><i style="background:#8b5cf6"></i>processing (detail view)</span>
         <span><i style="background:var(--nodata)"></i>no data</span>
         <span><i style="background:var(--nodata);outline:2px solid #60a5fa;outline-offset:1px"></i>current hour</span>
       </div>
@@ -139,7 +139,7 @@ const BLUES  = ["#101c30", "#1e3a8a", "#1d4ed8", "#3b82f6", "#60a5fa"];
 const GRAY = "#2a2f3a";      // no data (no samples at all)
 const LTGRAY = "#495059";    // up but 0 tokens (GitHub "level 0")
 const RED = "#7f1d1d";       // server down during that interval
-const PROC = "#9a3412";      // dark orange: processing (slot busy) but 0 token delta — thinking
+const PROC = "#8b5cf6";      // purple: processing (slot busy) but 0 token delta — thinking
 function lvl(v, max) {
   if (v == null) return -1;
   if (!max || max <= 0) return v > 0 ? 0 : -1;
@@ -148,7 +148,7 @@ function lvl(v, max) {
 function halves(st, pv, maxP, gv, maxG, busy) {
   if (st === "down") return [RED, RED];               // hour totally dead
   if (st == null) return [GRAY, GRAY];                // no samples -> dark grey
-  // up: no tokens on either side -> FULL dark orange if slot was processing
+  // up: no tokens on either side -> FULL purple if slot was processing
   // that minute (thinking); else light grey (idle);
   // otherwise blue (prefill) / green (generated) by volume
   if ((pv == null || pv <= 0) && (gv == null || gv <= 0)) {
