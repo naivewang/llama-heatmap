@@ -182,8 +182,15 @@ def api_status():
         if r.status_code == 200:
             data = r.json()
             slot_list = data.get("slots", []) if isinstance(data, dict) else data
+            def slot_state(s):
+                # newer/older builds may omit "state"; fall back to is_processing
+                st = s.get("state")
+                if st:
+                    return st
+                return "processing" if s.get("is_processing") else "idle"
+
             slots = [
-                {"id": s.get("id"), "state": s.get("state"),
+                {"id": s.get("id"), "state": slot_state(s),
                  "n_ctx": s.get("n_ctx"), "model": s.get("model_alias")}
                 for s in slot_list
             ]
