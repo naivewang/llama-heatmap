@@ -45,7 +45,9 @@
         border-radius: 6px; height: 84px; }
   td.other { opacity: 0.3; }
   .daynum { font-size: 12px; color: var(--muted); padding: 0 4px 3px; }
-  .hm { font-size: 9px; color: #5a6375; padding: 0 4px 1px; }
+  /* column labels for the 6-col hour grid, aligned with the bubbles */
+  .hm { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; padding: 0 4px 1px;
+        font-size: 9px; color: #5a6375; }
   .hours { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; }
   /* hour bubble: two golden-ratio sub-rectangles (each w:h = 1:1.618) side by side;
      flat inner seam, rounded outer corners only */
@@ -240,7 +242,7 @@ function renderCalendar() {
       const gh = (lastData.gen_h || {})[key] || [];
       const isToday = isCurrentMonth && day === now.d;
       const dt = (lastData.day_totals || {})[key];
-      td.innerHTML = `<div class="daynum" title="${key} — day total: ↑${fmtTok(dt?.prompt)} prefill · ↓${fmtTok(dt?.gen)} generated">${isToday ? "📍 " : ""}${day}</div><div class="hm">0&nbsp;&nbsp;&nbsp;&nbsp;6&nbsp;&nbsp;&nbsp;&nbsp;12&nbsp;&nbsp;&nbsp;&nbsp;18</div>`;
+      td.innerHTML = `<div class="daynum" title="${key} — day total: ↑${fmtTok(dt?.prompt)} prefill · ↓${fmtTok(dt?.gen)} generated">${isToday ? "📍 " : ""}${day}</div><div class="hm"><span>0</span><span>6</span><span>12</span><span>18</span><span></span><span></span></div>`;
       const grid = document.createElement("div");
       grid.className = "hours";
       const nowSlot = now.h;
