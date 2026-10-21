@@ -341,7 +341,7 @@ async function refreshCalendar() {
   } catch (e) { return; }
   renderCalendar();
   const t = new Date().toLocaleTimeString();
-  $("footer").textContent = `calendar for ${MONTHS[viewMonth]} ${viewYear} · refreshed ${t} · auto-refresh every 60s`;
+  $("footer").textContent = `calendar for ${MONTHS[viewMonth]} ${viewYear} · refreshed ${t} · auto-refresh every 59s`;
 }
 
 $("prev").onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } refreshCalendar(); };
@@ -359,7 +359,7 @@ document.addEventListener("mousemove", (e) => {
 
 refreshStatus();
 refreshCalendar();
-setInterval(() => { refreshStatus(); refreshCalendar(); }, 60000); // every 1 min
+setInterval(() => { refreshStatus(); refreshCalendar(); }, 59000); // 59s: deliberately off the backend's 60s poll cadence to avoid resonance
 </script>
 </body>
 </html>
