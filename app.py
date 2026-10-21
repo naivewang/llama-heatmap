@@ -62,10 +62,15 @@ def init_db() -> None:
                 cached_total   INTEGER,              -- cumulative cached prompt tokens
                 predict_total  INTEGER,              -- cumulative generated tokens
                 prompt_tps     REAL,                 -- gauge, avg over scrape window
-                predict_tps    REAL
+                predict_tps    REAL,
+                busy           INTEGER               -- 1 if any slot is_processing at poll time
             )
             """
         )
+        # migrate older DBs
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(metrics)")}
+        if "busy" not in cols:
+            conn.execute("ALTER TABLE metrics ADD COLUMN busy INTEGER")
         # keep ~6 months of samples
         cutoff = int((datetime.now(ZoneInfo("UTC")) - timedelta(days=180)).timestamp())
         conn.execute("DELETE FROM samples WHERE ts < ?", (cutoff,))
@@ -88,9 +93,24 @@ def check_health() -> tuple[str, float | None]:
 _METRIC_RE = re.compile(r"^llamacpp:(\w+) ([0-9.eE+-]+)$", re.M)
 
 
+def slots_busy() -> int | None:
+    """1 if any slot is_processing right now, 0 if all idle, None on error.
+    Captured once per poll so 'thinking' minutes (busy but 0 token delta)
+    can be told apart from truly idle minutes."""
+    try:
+        r = requests.get(f"{LLAMA_SERVER_URL}/slots", timeout=5)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        sl = data.get("slots", []) if isinstance(data, dict) else data
+        return 1 if any(s.get("is_processing") for s in sl) else 0
+    except (requests.RequestException, ValueError):
+        return None
+
+
 def scrape_metrics() -> dict | None:
-    """Fetch /metrics once. Returns parsed counters + process start time, or None
-    (endpoint disabled -> 501, server down, or parse failure)."""
+    """Fetch /metrics once. Returns parsed counters + process start time + busy flag,
+    or None (endpoint disabled -> 501, server down, or parse failure)."""
     try:
         r = requests.get(f"{LLAMA_SERVER_URL}/metrics", timeout=10)
         if r.status_code != 200:
@@ -103,6 +123,7 @@ def scrape_metrics() -> dict | None:
             "predict_total": vals.get("tokens_predicted_total"),
             "prompt_tps": vals.get("prompt_tokens_seconds"),
             "predict_tps": vals.get("predicted_tokens_seconds"),
+            "busy": slots_busy(),
         }
     except (requests.RequestException, ValueError):
         return None
@@ -125,10 +146,10 @@ def poller_loop() -> None:
                     with db_conn() as conn:
                         conn.execute(
                             """INSERT OR REPLACE INTO metrics
-                               (ts, proc_start, prompt_total, cached_total, predict_total, prompt_tps, predict_tps)
-                               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                               (ts, proc_start, prompt_total, cached_total, predict_total, prompt_tps, predict_tps, busy)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                             (int(now.timestamp()), m["proc_start"], m["prompt_total"],
-                             m["cached_total"], m["predict_total"], m["prompt_tps"], m["predict_tps"]),
+                             m["cached_total"], m["predict_total"], m["prompt_tps"], m["predict_tps"], m["busy"]),
                         )
                 last_minute = int(now.timestamp())
                 print(f"[{now:%Y-%m-%d %H:%M}] {LLAMA_SERVER_URL} -> {status.upper()}"
@@ -348,7 +369,7 @@ def api_day():
     # on a proc_start change record the counter value itself (tokens since boot).
     day_start, day_end = int(day.timestamp()), int(day.timestamp()) + 86399
     rows = db_conn().execute(
-        """SELECT ts, proc_start, prompt_total, cached_total, predict_total
+        """SELECT ts, proc_start, prompt_total, cached_total, predict_total, busy
               FROM metrics WHERE ts > ? AND ts <= ? ORDER BY ts""",
         (day_start - 3600, day_end),
     ).fetchall()
@@ -361,11 +382,14 @@ def api_day():
     prompt_min = deltas("prompt_total")
     cached_min = deltas("cached_total")
     gen_min = deltas("predict_total")
+    busy_by_ts = {r["ts"]: r["busy"] for r in rows}
+    busy_min = [busy_by_ts.get(day_start + i * 60) for i in range(1440)]
     return jsonify({
         "date": date_str, "tz": TIMEZONE, "cells": cells,
         "prompt_min": prompt_min,
         "cached_min": cached_min,
         "gen_min": gen_min,
+        "busy_min": busy_min,
         "totals": {
             "prompt": sum(v or 0 for v in prompt_min),
             "cached": sum(v or 0 for v in cached_min),

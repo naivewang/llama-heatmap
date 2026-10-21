@@ -101,6 +101,7 @@
         <span><i style="background:#1d4ed8"></i>prefill</span>
         <span><i style="background:#166534"></i>generated</span>
         <span><i style="background:#495059"></i>up, 0 tokens</span>
+        <span><i style="background:#8b5cf6"></i>in-flight, 0 tokens (detail view)</span>
         <span><i style="background:var(--nodata)"></i>no data</span>
         <span><i style="background:var(--nodata);outline:2px solid #60a5fa;outline-offset:1px"></i>current hour</span>
       </div>
@@ -138,17 +139,19 @@ const BLUES  = ["#101c30", "#1e3a8a", "#1d4ed8", "#3b82f6", "#60a5fa"];
 const GRAY = "#2a2f3a";      // no data (no samples at all)
 const LTGRAY = "#495059";    // up but 0 tokens (GitHub "level 0")
 const RED = "#7f1d1d";       // server down during that interval
+const VIOLET = "#8b5cf6";    // in-flight (slot busy) but 0 token delta — thinking
 function lvl(v, max) {
   if (v == null) return -1;
   if (!max || max <= 0) return v > 0 ? 0 : -1;
   return Math.min(4, Math.floor(Math.sqrt(v / max) * 5));
 }
-function halves(st, pv, maxP, gv, maxG) {
+function halves(st, pv, maxP, gv, maxG, busy) {
   if (st === "down") return [RED, RED];               // hour totally dead
   if (st == null) return [GRAY, GRAY];                // no samples -> dark grey
-  // up: light grey if no tokens, otherwise blue (prefill) / green (generated) by volume
-  const cP = (pv == null || pv <= 0) ? LTGRAY : BLUES[lvl(pv, maxP)];
-  const cG = (gv == null || gv <= 0) ? LTGRAY : GREENS[lvl(gv, maxG)];
+  // up: no tokens -> violet if slot was in-flight that minute, else light grey;
+  // otherwise blue (prefill) / green (generated) by volume
+  const cP = (pv == null || pv <= 0) ? (busy ? VIOLET : LTGRAY) : BLUES[lvl(pv, maxP)];
+  const cG = (gv == null || gv <= 0) ? (busy ? VIOLET : LTGRAY) : GREENS[lvl(gv, maxG)];
   return [cP, cG];
 }
 function fmtTok(n) {
@@ -307,11 +310,13 @@ async function showDetail(key, isToday, hour) {
       const st = d.cells[idx];
       const pv = d.prompt_min[idx], gv = d.gen_min[idx];
       const div = document.createElement("div");
+      const busy = d.busy_min ? d.busy_min[idx] : null;
       div.className = "m" + (st ? " " + st : "") + (idx === nowMin ? " now" : "");
-      const [l, r] = halves(st, pv, maxP, gv, maxG);
+      const [l, r] = halves(st, pv, maxP, gv, maxG, busy);
       div.innerHTML = `<span style="background:${l}"></span><span style="background:${r}"></span>`;
       div.title = `${pad(h)}:${pad(m)} — ` + (st === "up" ? "up" : st === "down" ? "DOWN" : "no data") +
-        ` · prefill ${fmtTok(pv)} · generated ${fmtTok(gv)}`;
+        ` · prefill ${fmtTok(pv)} · generated ${fmtTok(gv)}` +
+        (busy ? " · in-flight (slot busy)" : "");
       frag.appendChild(div);
     }
   }
