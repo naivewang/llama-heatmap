@@ -1,6 +1,6 @@
 """
-Llama Server Monitor
---------------------
+Llama Heatmap
+-------------
 A Flask app that polls a llama.cpp server's /health endpoint every 60 seconds,
 stores each sample in SQLite, and renders a monthly calendar showing per-hour
 status (up / down / no data) on a webpage that auto-refreshes every minute.
@@ -403,7 +403,7 @@ def main():
     init_db()
     threading.Thread(target=poller_loop, daemon=True).start()
     port = int(os.environ.get("PORT", "5000"))
-    print(f"Llama monitor: http://localhost:{port}  (watching {LLAMA_SERVER_URL}, every {POLL_INTERVAL}s)")
+    print(f"Llama heatmap: http://localhost:{port}  (watching {LLAMA_SERVER_URL}, every {POLL_INTERVAL}s)")
     app.run(host="0.0.0.0", port=port, debug=False)
 
 

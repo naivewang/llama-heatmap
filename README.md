@@ -1,4 +1,4 @@
-# llama-server-monitor
+# llama-heatmap
 
 A tiny self-hosted dashboard for a [llama.cpp](https://github.com/ggml-org/llama.cpp)
 server (`llama-server`): it polls the server every 60 seconds, stores everything
@@ -37,8 +37,8 @@ No external services needed: one Python file, one template, one SQLite file.
 ## Quickstart
 
 ```bash
-git clone <your-repo-url> llama-server-monitor
-cd llama-server-monitor
+git clone https://github.com/naivewang/llama-heatmap.git
+cd llama-heatmap
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
@@ -53,7 +53,7 @@ The llama.cpp server side:
 llama-server -m model.gguf --metrics   # --metrics enables /metrics
 ```
 
-`/metrics` is optional — if it's absent (501), the monitor still tracks
+`/metrics` is optional — if it's absent (501), the heatmap still tracks
 up/down status; token bubbles simply stay grey.
 
 ## Configuration
@@ -63,7 +63,7 @@ up/down status; token bubbles simply stay grey.
 | `LLAMA_SERVER_URL` | `http://127.0.0.1:8080`  | Base URL of the llama.cpp server     |
 | `MONITOR_TZ`       | `America/Los_Angeles`    | IANA timezone for calendar/time math |
 
-Monitor HTTP port: `app.run(port=5000)` at the bottom of `app.py`.
+Heatmap HTTP port: `app.run(port=5000)` at the bottom of `app.py`.
 
 ## API
 
@@ -87,7 +87,7 @@ Monitor HTTP port: `app.run(port=5000)` at the bottom of `app.py`.
 
 ## Run as a service (optional)
 
-`~/.config/systemd/user/llama-monitor.service`:
+`~/.config/systemd/user/llama-heatmap.service`:
 
 ```ini
 [Unit]
@@ -95,9 +95,9 @@ Description=llama.cpp server monitor
 After=network-online.target
 
 [Service]
-WorkingDirectory=%h/llama-server-monitor
+WorkingDirectory=%h/llama-heatmap
 Environment=LLAMA_SERVER_URL=http://YOUR_LLAMA_HOST:8080
-ExecStart=%h/llama-server-monitor/.venv/bin/python app.py
+ExecStart=%h/llama-heatmap/.venv/bin/python app.py
 Restart=always
 RestartSec=5
 
@@ -107,7 +107,7 @@ WantedBy=default.target
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now llama-monitor
+systemctl --user enable --now llama-heatmap
 loginctl enable-linger $USER    # start at boot even without a login
 ```
 
