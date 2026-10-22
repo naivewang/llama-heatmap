@@ -66,9 +66,10 @@
   .min-scroll { overflow-x: auto; padding-bottom: 6px; }
   .min-grid { display: grid; grid-template-columns: 34px repeat(60, 1fr); gap: 0 1px; min-width: 0; }
   .min-label { font-size: 9px; color: var(--muted); display: flex; align-items: center; }
-  /* same fluid golden-portrait sub-bubbles as the main calendar, flat inner seam */
-  .m { display: grid; grid-template-columns: 1fr 1fr; border-radius: 2px; overflow: hidden; }
-  .m > span { border-radius: 0; aspect-ratio: 1 / 1.618; }
+  /* detail-view minute bubble: stacked top/bottom (top = prefill, bottom = generated),
+     each half a landscape golden rectangle — adjacent columns read as continuous bands */
+  .m { display: grid; grid-template-rows: 1fr 1fr; border-radius: 2px; overflow: hidden; }
+  .m > span { border-radius: 0; aspect-ratio: 1.618 / 1; }
   .m.now  { outline: 1px solid #60a5fa; outline-offset: -1px; }
 
   .h.now  { outline: 2px solid #60a5fa; outline-offset: 1px; }
