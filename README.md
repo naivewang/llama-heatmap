@@ -60,7 +60,7 @@ up/down status; token bubbles simply stay grey.
 
 | Env var            | Default                  | Meaning                              |
 |--------------------|--------------------------|--------------------------------------|
-| `LLAMA_SERVER_URL` | `http://localhost:8080`  | Base URL of the llama.cpp server     |
+| `LLAMA_SERVER_URL` | `http://127.0.0.1:8080`  | Base URL of the llama.cpp server     |
 | `MONITOR_TZ`       | `America/Los_Angeles`    | IANA timezone for calendar/time math |
 
 Monitor HTTP port: `app.run(port=5000)` at the bottom of `app.py`.

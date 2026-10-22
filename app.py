@@ -6,7 +6,7 @@ stores each sample in SQLite, and renders a monthly calendar showing per-hour
 status (up / down / no data) on a webpage that auto-refreshes every minute.
 
 Usage:
-    export LLAMA_SERVER_URL=http://localhost:8080   # default
+    export LLAMA_SERVER_URL=http://127.0.0.1:8080   # default
     python app.py                                   # -> http://localhost:5000
 """
 
@@ -23,7 +23,7 @@ import requests
 from flask import Flask, jsonify, render_template, request
 
 # ---------------------------------------------------------------- config ---
-LLAMA_SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://10.0.0.78:8080").rstrip("/")
+LLAMA_SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://127.0.0.1:8080").rstrip("/")
 POLL_INTERVAL = 60                      # seconds between health checks
 TIMEZONE = os.environ.get("MONITOR_TZ", "America/Los_Angeles")  # Pacific
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitor.db")
