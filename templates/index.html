@@ -145,6 +145,13 @@ const MONTHS = ["January","February","March","April","May","June",
 let lastData = {};
 
 // GitHub-contribution-style shading: left/top half = prefill (blue), right/bottom = generated (green)
+//
+// Palette strategy: hand-picked per theme (current). If more themes are ever added,
+// consider generating the 5-level ramps instead of hardcoding: per theme store only
+// the card background + one anchor color per state, then interpolate lightness in a
+// perceptual space (OKLCH / color-mix()) from "near-background" to the anchor —
+// optionally stepping until each level meets a WCAG contrast ratio vs. the card.
+// Keeps themes consistent with far fewer magic numbers (6 values vs ~16).
 const THEMES = {
   dark: {
     GREENS: ["#12291c", "#14532d", "#166534", "#22c55e", "#4ade80"],
