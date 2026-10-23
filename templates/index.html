@@ -41,13 +41,13 @@
     border-color: var(--up); color: var(--up); }
   .slot-badge.error { border-color: var(--down); color: var(--down); }
 
-  .cal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .cal-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
   .cal-head h2 { margin: 0; font-size: 18px; min-width: 170px; text-align: center; }
   .cal-head button { background: var(--nodata); color: var(--text); border: 1px solid var(--border);
         border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
   .cal-head button:hover { background: #343b4a; }
   html[data-theme="light"] .cal-head button:hover { background: #e2e6ea; }
-  .legend { margin-left: auto; display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+  .legend { margin-left: auto; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
   .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
 
   table.cal { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -84,6 +84,22 @@
 
   .h.now  { outline: 2px solid #60a5fa; outline-offset: 1px; }
   footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 14px; }
+
+  /* phones / narrow windows: compact everything, let the banner wrap */
+  @media (max-width: 700px) {
+    body { padding: 10px; }
+    h1 { font-size: 18px; }
+    .card { padding: 10px; margin-bottom: 12px; }
+    .cal-head { gap: 8px; }
+    .cal-head h2 { min-width: 120px; font-size: 15px; }
+    .legend { margin-left: 0; gap: 8px 10px; font-size: 11px; }
+    .daynum { font-size: 10px; padding: 0 2px 2px; }
+    .hm { font-size: 8px; padding: 0 2px 1px; }
+    table.cal td { padding: 2px; }
+    .kv { font-size: 12px; }
+    .status-text { font-size: 16px; }
+    .min-label { font-size: 9px; }  
+  }
   #tooltip { position: fixed; background: #000c; color: #fff; font-size: 12px;
         padding: 5px 9px; border-radius: 6px; pointer-events: none; display: none; z-index: 9; }
 </style>
