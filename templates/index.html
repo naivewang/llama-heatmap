@@ -280,7 +280,7 @@ function renderCalendar() {
       const td = document.createElement("td");
       if (day === null) { td.className = "other"; td.innerHTML = "<div class='hours'></div>"; tr.appendChild(td); continue; }
       const key = dateKey(viewYear, viewMonth, day);
-      const status = lastData.cells[key] || [];
+      const status = (lastData.cells || {})[key] || [];
       const ph = (lastData.prompt_h || {})[key] || [];
       const gh = (lastData.gen_h || {})[key] || [];
       const isToday = isCurrentMonth && day === now.d;
