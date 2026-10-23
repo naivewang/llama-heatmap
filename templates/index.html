@@ -80,8 +80,10 @@
         font-size: 16px; cursor: pointer; }
   .min-scroll { overflow-x: auto; padding-bottom: 6px; container-type: inline-size; }
   .min-grid { display: grid; grid-template-columns: max-content repeat(60, 1fr); gap: 2px 1px; min-width: 0; }
-  /* hour labels scale with the panel (9px desktop → ~7px phones), column hugs the text */
-  .min-label { font-size: clamp(7px, 2.2cqw, 9px); color: var(--muted); display: flex; align-items: center; }
+  /* hour labels: zero height (float over their row, never stretch it — rows stay
+     pure bubble height), font adaptive with the panel (12px desktop → 6px phones) */
+  .min-label { font-size: clamp(6px, 1.4cqw, 12px); color: var(--muted);
+               display: flex; align-items: center; height: 0; align-self: center; }
   /* detail-view minute bubble: SAME outer ratio as the calendar bubble (1.236:1),
      only the split runs top/bottom (top = prefill, bottom = generated) instead of left/right */
   .m { display: grid; grid-template-rows: 1fr 1fr; aspect-ratio: 1.236 / 1;
@@ -106,6 +108,8 @@
     .kv { font-size: 12px; grid-template-columns: max-content 1fr; }
     .kv .full { grid-column: auto; grid-template-columns: max-content 1fr; }
     .status-text { font-size: 16px; }
+    /* rows are a few px tall on phones: only every 3rd hour label, else they collide */
+    .min-label:not(.major) { visibility: hidden; }
   }
   #tooltip { position: fixed; background: #000c; color: #fff; font-size: 12px;
         padding: 5px 9px; border-radius: 6px; pointer-events: none; display: none; z-index: 9; }
@@ -377,7 +381,7 @@ async function showDetail(key, isToday, hour, force) {
   const frag = document.createDocumentFragment();
   for (let h = hour == null ? 0 : hour; h <= (hour == null ? 23 : hour); h++) {
     const lab = document.createElement("div");
-    lab.className = "min-label";
+    lab.className = "min-label" + (h % 3 === 0 ? " major" : "");
     lab.textContent = pad(h);
     frag.appendChild(lab);
     for (let m = 0; m < 60; m++) {
