@@ -53,7 +53,8 @@
   .legend { margin-left: auto; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
   .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
 
-  table.cal { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  table.cal { width: 100%; border-collapse: collapse; table-layout: fixed;
+               container-type: inline-size; }  /* lets .hm scale with table width */
   table.cal th { color: var(--muted); font-size: 12px; font-weight: 600; padding: 4px 2px; }
   table.cal td { vertical-align: top; padding: 3px; border: 1px solid var(--border);
         border-radius: 6px; }  /* height follows content (fluid bubbles) */
@@ -61,7 +62,8 @@
   .daynum { font-size: 12px; color: var(--muted); padding: 0 4px 3px; }
   /* column labels for the 6-col hour grid, aligned with the bubbles */
   .hm { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; padding: 0 4px 1px;
-        font-size: 9px; color: #5a6375; }
+        /* fluid: scales with the table like the bubbles do (9px on desktop, ~5px on phones) */
+        font-size: clamp(5px, 1.5cqw, 9px); color: #5a6375; }
   .hours { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; }
   /* hour bubble: two golden-ratio sub-rectangles (each w:h = 1:1.618) side by side;
      flat inner seam, rounded outer corners only.
@@ -98,7 +100,7 @@
     .cal-head h2 { min-width: 120px; font-size: 15px; }
     .legend { margin-left: 0; gap: 8px 10px; font-size: 11px; }
     .daynum { font-size: 10px; padding: 0 2px 2px; }
-    .hm { font-size: 8px; padding: 0 2px 1px; }
+    .hm { padding: 0 2px 1px; }
     table.cal td { padding: 2px; }
     .kv { font-size: 12px; grid-template-columns: max-content 1fr; }
     .kv .full { grid-column: auto; grid-template-columns: max-content 1fr; }
