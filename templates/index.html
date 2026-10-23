@@ -221,6 +221,11 @@ function fmtTok(n) {
   if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
   return String(n);
 }
+// share of prompt tokens served from KV cache (only shown for day/month totals)
+function cachePct(cached, processed) {
+  const c = cached || 0, t = c + (processed || 0);
+  return t > 0 ? ` · cache ${Math.round((100 * c) / t)}%` : "";
+}
 
 function pad(n) { return String(n).padStart(2, "0"); }
 function dateKey(y, m0, d) { return `${y}-${pad(m0 + 1)}-${pad(d)}`; }
@@ -290,7 +295,7 @@ function renderCalendar() {
   for (const k in lastData.gen_h || {}) for (const v of lastData.gen_h[k]) if (v != null && v > maxG) maxG = v;
   const mt = lastData.month_totals;
   $("monthTotals").textContent = mt
-    ? `month: ↑${fmtTok(mt.prompt)} prefill · ↓${fmtTok(mt.gen)} generated`
+    ? `month: ↑${fmtTok(mt.prompt)} · ↓${fmtTok(mt.gen)}${cachePct(mt.cached, mt.prompt)}`
     : "";
 
   const tbody = $("calBody");
@@ -307,7 +312,7 @@ function renderCalendar() {
       const gh = (lastData.gen_h || {})[key] || [];
       const isToday = isCurrentMonth && day === now.d;
       const dt = (lastData.day_totals || {})[key];
-      td.innerHTML = `<div class="daynum" title="${key} — day total: ↑${fmtTok(dt?.prompt)} prefill · ↓${fmtTok(dt?.gen)} generated">${isToday ? "📍 " : ""}${day}</div><div class="hm"><span>0</span><span>6</span><span>12</span><span>18</span><span></span><span></span></div>`;
+      td.innerHTML = `<div class="daynum" title="${key} — day total: ↑${fmtTok(dt?.prompt)} · ↓${fmtTok(dt?.gen)}${cachePct(dt?.cached, dt?.prompt)}">${isToday ? "📍 " : ""}${day}</div><div class="hm"><span>0</span><span>6</span><span>12</span><span>18</span><span></span><span></span></div>`;
       const grid = document.createElement("div");
       grid.className = "hours";
       const nowSlot = now.h;
@@ -322,7 +327,7 @@ function renderCalendar() {
         div.innerHTML = `<span style="background:${l}"></span><span style="background:${r}"></span>`;
         div.dataset.tip = `${key} ${pad(s)}:00–${pad(s)}:59 — ` +
           (st === "up" ? "up" : st === "down" ? "DOWN" : "no data") +
-          ` · prefill ${fmtTok(pv)} · generated ${fmtTok(gv)} · click for per-minute`;
+          ` · ↑${fmtTok(pv)} · ↓${fmtTok(gv)} · click for per-minute`;
         div.addEventListener("click", (e) => { e.stopPropagation(); showDetail(key, isToday, s); });
         grid.appendChild(div);
       }
@@ -359,7 +364,7 @@ async function showDetail(key, isToday, hour, force) {
   $("dayLabel").textContent = (hour == null
     ? `${key} — per minute (${d.tz}) · day total: `
     : `${key} ${pad(hour)}:00–${pad(hour)}:59 — per minute (${d.tz}) · hour total: `) +
-    `↑${fmtTok(totP)} prefill · ↓${fmtTok(totG)} generated`;
+    `↑${fmtTok(totP)} · ↓${fmtTok(totG)}` + (hour == null ? cachePct(d.totals?.cached, totP) : "");
   const grid = $("minGrid");
   grid.innerHTML = "";
   const frag = document.createDocumentFragment();
@@ -378,7 +383,7 @@ async function showDetail(key, isToday, hour, force) {
       const [l, r] = halves(st, pv, maxP, gv, maxG, busy);
       div.innerHTML = `<span style="background:${l}"></span><span style="background:${r}"></span>`;
       div.title = `${pad(h)}:${pad(m)} — ` + (st === "up" ? "up" : st === "down" ? "DOWN" : "no data") +
-        ` · prefill ${fmtTok(pv)} · generated ${fmtTok(gv)}` +
+        ` · ↑${fmtTok(pv)} · ↓${fmtTok(gv)}` +
         (busy ? " · processing" : "");
       frag.appendChild(div);
     }

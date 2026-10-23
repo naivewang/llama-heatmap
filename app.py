@@ -309,6 +309,7 @@ def api_calendar():
 
     p_dm = _minute_deltas(mrows, "prompt_total", int(first_day.timestamp()), int(last_day.timestamp()))
     g_dm = _minute_deltas(mrows, "predict_total", int(first_day.timestamp()), int(last_day.timestamp()))
+    c_dm = _minute_deltas(mrows, "cached_total", int(first_day.timestamp()), int(last_day.timestamp()))
 
     def by_day_h(dm):
         grouped: dict[str, list[tuple[int, int]]] = {}
@@ -317,7 +318,15 @@ def api_calendar():
             grouped.setdefault(dtm.strftime("%Y-%m-%d"), []).append((dtm.hour, v))
         return grouped
 
+    def by_day_total(dm):
+        out: dict[str, int] = {}
+        for ts, v in dm.items():
+            d = datetime.fromtimestamp(ts, TZ).strftime("%Y-%m-%d")
+            out[d] = out.get(d, 0) + v
+        return out
+
     p_grp, g_grp = by_day_h(p_dm), by_day_h(g_dm)
+    c_tot = by_day_total(c_dm)
     prompt_h: dict[str, list[int | None]] = {}
     gen_h: dict[str, list[int | None]] = {}
     day_totals: dict[str, dict[str, int]] = {}
@@ -330,14 +339,16 @@ def api_calendar():
         for s30, v in g_grp.get(key, []):
             gs[s30] = (gs[s30] or 0) + v
         dp, dg = sum(v or 0 for v in ps), sum(v or 0 for v in gs)
-        prompt_h[key], gen_h[key], day_totals[key] = ps, gs, {"prompt": dp, "gen": dg}
+        prompt_h[key], gen_h[key], day_totals[key] = ps, gs, {"prompt": dp, "gen": dg, "cached": c_tot.get(key, 0)}
         month_prompt, month_gen = month_prompt + dp, month_gen + dg
+    month_cached = sum(c_tot.get((first_day + timedelta(days=d)).strftime("%Y-%m-%d"), 0)
+                       for d in range(calendar.monthrange(year, month)[1]))
 
     return jsonify({
         "year": year, "month": month, "tz": TIMEZONE, "cells": cells,
         "prompt_h": prompt_h, "gen_h": gen_h,
         "day_totals": day_totals,
-        "month_totals": {"prompt": month_prompt, "gen": month_gen},
+        "month_totals": {"prompt": month_prompt, "gen": month_gen, "cached": month_cached},
     })
 
 
