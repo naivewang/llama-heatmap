@@ -80,9 +80,10 @@
   .min-grid { display: grid; grid-template-columns: 34px repeat(60, 1fr); gap: 2px 1px; min-width: 0; }
   .min-label { font-size: 9px; color: var(--muted); display: flex; align-items: center; }
   /* detail-view minute bubble: stacked top/bottom (top = prefill, bottom = generated),
-     each half a landscape golden rectangle — adjacent columns read as continuous bands */
+     each half a PORTRAIT golden rectangle (1:1.618) — the main-calendar half shape
+     rotated into the stack; combined bubble is 1 : 3.236 */
   .m { display: grid; grid-template-rows: 1fr 1fr; border-radius: 2px; overflow: hidden; }
-  .m > span { border-radius: 0; aspect-ratio: 1.618 / 1; }
+  .m > span { border-radius: 0; aspect-ratio: 1 / 1.618; }
   .m.now  { outline: 1px solid #60a5fa; outline-offset: -1px; }
 
   .h.now  { outline: 2px solid #60a5fa; outline-offset: 1px; }
