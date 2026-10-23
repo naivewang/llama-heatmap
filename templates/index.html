@@ -378,7 +378,7 @@ async function showDetail(key, isToday, hour, force) {
   for (let h = hour == null ? 0 : hour; h <= (hour == null ? 23 : hour); h++) {
     const lab = document.createElement("div");
     lab.className = "min-label";
-    lab.textContent = pad(h) + ":00";
+    lab.textContent = pad(h);
     frag.appendChild(lab);
     for (let m = 0; m < 60; m++) {
       const idx = h * 60 + m;
