@@ -282,10 +282,12 @@ function renderCalendar() {
 
 // ------------------------------------- per-minute detail view (day or single hour)
 let shownDetail = null;
-async function showDetail(key, isToday, hour) {
+let detailParams = null;  // {key, isToday, hour} of the open detail, for auto-refresh
+async function showDetail(key, isToday, hour, force) {
   const tag = hour == null ? key : `${key}:${hour}`;
-  if (shownDetail === tag) { hideDay(); return; }
+  if (!force && shownDetail === tag) { hideDay(); return; }
   shownDetail = tag;
+  detailParams = { key, isToday, hour };
   const r = await fetch(`/api/day?date=${key}`);
   if (!r.ok) return;
   const d = await r.json();
@@ -333,6 +335,7 @@ async function showDetail(key, isToday, hour) {
 
 function hideDay() {
   shownDetail = null;
+  detailParams = null;
   $("dayDetail").style.display = "none";
 }
 $("dayClose").onclick = hideDay;
@@ -362,7 +365,10 @@ document.addEventListener("mousemove", (e) => {
 
 refreshStatus();
 refreshCalendar();
-setInterval(() => { refreshStatus(); refreshCalendar(); }, 59000); // 59s: deliberately off the backend's 60s poll cadence to avoid resonance
+setInterval(() => {
+  refreshStatus(); refreshCalendar();
+  if (detailParams) showDetail(detailParams.key, detailParams.isToday, detailParams.hour, true); // keep open detail fresh
+}, 59000); // 59s: deliberately off the backend's 60s poll cadence to avoid resonance
 </script>
 </body>
 </html>

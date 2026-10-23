@@ -292,8 +292,10 @@ def api_calendar():
             if not samples:
                 day_cells.append(None)
                 continue
+            # red only when the hour was TOTALLY dead (zero up-samples);
+            # a partial outage still shows the token shading of the recovered part
             ups = sum(1 for s in samples if s == "up")
-            day_cells.append("up" if ups >= len(samples) / 2 else "down")
+            day_cells.append("up" if ups > 0 else "down")
         cells[key] = day_cells
 
     # per-30-min token sums (prefill / generated) + day & month totals
