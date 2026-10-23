@@ -78,9 +78,10 @@
   #dayDetail h3 { margin: 0 0 10px; font-size: 15px; }
   #dayDetail .close { float: right; background: none; border: none; color: var(--muted);
         font-size: 16px; cursor: pointer; }
-  .min-scroll { overflow-x: auto; padding-bottom: 6px; }
-  .min-grid { display: grid; grid-template-columns: 34px repeat(60, 1fr); gap: 2px 1px; min-width: 0; }
-  .min-label { font-size: 9px; color: var(--muted); display: flex; align-items: center; }
+  .min-scroll { overflow-x: auto; padding-bottom: 6px; container-type: inline-size; }
+  .min-grid { display: grid; grid-template-columns: max-content repeat(60, 1fr); gap: 2px 1px; min-width: 0; }
+  /* hour labels scale with the panel (9px desktop → ~7px phones), column hugs the text */
+  .min-label { font-size: clamp(7px, 2.2cqw, 9px); color: var(--muted); display: flex; align-items: center; }
   /* detail-view minute bubble: SAME outer ratio as the calendar bubble (1.236:1),
      only the split runs top/bottom (top = prefill, bottom = generated) instead of left/right */
   .m { display: grid; grid-template-rows: 1fr 1fr; aspect-ratio: 1.236 / 1;
@@ -105,7 +106,6 @@
     .kv { font-size: 12px; grid-template-columns: max-content 1fr; }
     .kv .full { grid-column: auto; grid-template-columns: max-content 1fr; }
     .status-text { font-size: 16px; }
-    .min-label { font-size: 9px; }  
   }
   #tooltip { position: fixed; background: #000c; color: #fff; font-size: 12px;
         padding: 5px 9px; border-radius: 6px; pointer-events: none; display: none; z-index: 9; }
