@@ -32,9 +32,12 @@
   .dot.up   { background: var(--up);   box-shadow: 0 0 12px var(--up); }
   .dot.down { background: var(--down); box-shadow: 0 0 12px var(--down); }
   .status-text { font-size: 20px; font-weight: 700; }
-  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px;
+  /* two label/value pairs per row; .full entries (long model name) span the row */
+  .kv { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 4px 14px;
         font-size: 13px; color: var(--muted); }
   .kv b { color: var(--text); font-weight: 600; word-break: break-all; }
+  .kv .full { grid-column: 1 / -1; display: grid; grid-template-columns: max-content 1fr;
+              column-gap: 14px; }
   .slot-badge { display: inline-block; padding: 2px 8px; border-radius: 6px;
         font-size: 12px; border: 1px solid var(--border); margin-left: 6px; }
   .slot-badge.running, .slot-badge.busy, .slot-badge.processing {
@@ -96,7 +99,8 @@
     .daynum { font-size: 10px; padding: 0 2px 2px; }
     .hm { font-size: 8px; padding: 0 2px 1px; }
     table.cal td { padding: 2px; }
-    .kv { font-size: 12px; }
+    .kv { font-size: 12px; grid-template-columns: max-content 1fr; }
+    .kv .full { grid-column: auto; grid-template-columns: max-content 1fr; }
     .status-text { font-size: 16px; }
     .min-label { font-size: 9px; }  
   }
@@ -258,7 +262,7 @@ async function refreshStatus() {
     const dd = d.details;
     let html = "";
     if (dd) {
-      html += `<span>Model</span><b>${dd.model} (${dd.ftype})</b>`;
+      html += `<div class="full"><span>Model</span><b>${dd.model} (${dd.ftype})</b></div>`;
       if (dd.n_ctx)   html += `<span>Context</span><b>${Number(dd.n_ctx).toLocaleString()} tokens</b>`;
       if (dd.total_slots != null) html += `<span>Slots</span><b>${dd.total_slots}</b>`;
       html += `<span>Asleep</span><b>${dd.is_sleeping ? "yes 😴" : "no"}</b>`;
