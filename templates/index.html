@@ -8,12 +8,21 @@
   :root {
     --up: #22c55e; --down: #ef4444; --nodata: #2a2f3a; --bg: #0f1218;
     --card: #171c26; --border: #2a3140; --text: #e5e9f0; --muted: #8b94a7;
+    --sw-prefill: #1d4ed8; --sw-gen: #166534; --sw-idle: #495059; --sw-proc: #8b5cf6;
+  }
+  html[data-theme="light"] {
+    --up: #16a34a; --down: #dc2626; --nodata: #d0d7de; --bg: #f6f8fa;
+    --card: #ffffff; --border: #d0d7de; --text: #1f2328; --muted: #57606a;
+    --sw-prefill: #3b82f6; --sw-gen: #16a34a; --sw-idle: #d0d7de; --sw-proc: #b197fc;
   }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
          background: var(--bg); color: var(--text); padding: 20px; }
   .wrap { max-width: 1045px; margin: 0 auto; }
+  .title-row { display: flex; justify-content: space-between; align-items: center; }
   h1 { font-size: 22px; margin: 0 0 4px; }
+  #themeBtn { background: var(--card); border: 1px solid var(--border); color: var(--text);
+        font-size: 16px; border-radius: 8px; padding: 4px 12px; cursor: pointer; }
   .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
   .card { background: var(--card); border: 1px solid var(--border);
           border-radius: 12px; padding: 16px; margin-bottom: 18px; }
@@ -37,6 +46,7 @@
   .cal-head button { background: var(--nodata); color: var(--text); border: 1px solid var(--border);
         border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
   .cal-head button:hover { background: #343b4a; }
+  html[data-theme="light"] .cal-head button:hover { background: #e2e6ea; }
   .legend { margin-left: auto; display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
   .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
 
@@ -80,7 +90,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🦙 Llama Heatmap</h1>
+  <div class="title-row"><h1>🦙 Llama Heatmap</h1><button id="themeBtn" title="Toggle dark/light theme"></button></div>
   <div class="sub">{{ server_url }} &middot; checked every {{ poll_interval }}s &middot; timezone: {{ timezone }}</div>
 
   <div class="card">
@@ -101,10 +111,10 @@
       <span id="monthTotals" style="font-size:12px;color:var(--muted)"></span>
       <div class="legend">
         <span><i style="background:var(--down)"></i>down</span>
-        <span><i style="background:#1d4ed8"></i>prefill</span>
-        <span><i style="background:#166534"></i>generated</span>
-        <span><i style="background:#495059"></i>idle</span>
-        <span><i style="background:#8b5cf6"></i>processing (detail view)</span>
+        <span><i style="background:var(--sw-prefill)"></i>prefill</span>
+        <span><i style="background:var(--sw-gen)"></i>generated</span>
+        <span><i style="background:var(--sw-idle)"></i>idle</span>
+        <span><i style="background:var(--sw-proc)"></i>processing (detail view)</span>
         <span><i style="background:var(--nodata)"></i>no data</span>
         <span><i style="background:var(--nodata);outline:2px solid #60a5fa;outline-offset:1px"></i>current hour</span>
       </div>
@@ -134,29 +144,53 @@ const MONTHS = ["January","February","March","April","May","June",
                 "July","August","September","October","November","December"];
 let lastData = {};
 
-// GitHub-contribution-style shading: left half = prefill (blue), right = generated (green)
-const GREENS = ["#12291c", "#14532d", "#166534", "#22c55e", "#4ade80"];
-const BLUES  = ["#101c30", "#1e3a8a", "#1d4ed8", "#3b82f6", "#60a5fa"];
-const GRAY = "#2a2f3a";      // no data (no samples at all)
-const LTGRAY = "#495059";    // up but 0 tokens (GitHub "level 0")
-const RED = "#7f1d1d";       // server down during that interval
-const PROC = "#8b5cf6";      // purple: processing (slot busy) but 0 token delta — thinking
+// GitHub-contribution-style shading: left/top half = prefill (blue), right/bottom = generated (green)
+const THEMES = {
+  dark: {
+    GREENS: ["#12291c", "#14532d", "#166534", "#22c55e", "#4ade80"],
+    BLUES:  ["#101c30", "#1e3a8a", "#1d4ed8", "#3b82f6", "#60a5fa"],
+    GRAY: "#2a2f3a",   // no data (no samples at all)
+    LTGRAY: "#495059", // up but 0 tokens (GitHub "level 0")
+    RED: "#7f1d1d",    // server down during that interval
+    PROC: "#8b5cf6",   // purple: processing (slot busy) but 0 token delta — thinking
+  },
+  light: {
+    GREENS: ["#f0fdf4", "#dcfce7", "#86efac", "#4ade80", "#16a34a"],
+    BLUES:  ["#eff6ff", "#dbeafe", "#93c5fd", "#3b82f6", "#1d4ed8"],
+    GRAY: "#d5dbe1",
+    LTGRAY: "#eaeef2",
+    RED: "#f28b82",
+    PROC: "#b197fc",
+  },
+};
+let theme = localStorage.getItem("lh-theme") || "dark";
+let C = THEMES[theme];
+function applyTheme(t) {
+  theme = t;
+  C = THEMES[t];
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem("lh-theme", t);
+  $("themeBtn").textContent = t === "dark" ? "🌙" : "☀️";
+  renderCalendar();
+  if (detailParams) showDetail(detailParams.key, detailParams.isToday, detailParams.hour, true);
+}
+$("themeBtn").onclick = () => applyTheme(theme === "dark" ? "light" : "dark");
 function lvl(v, max) {
   if (v == null) return -1;
   if (!max || max <= 0) return v > 0 ? 0 : -1;
   return Math.min(4, Math.floor(Math.sqrt(v / max) * 5));
 }
 function halves(st, pv, maxP, gv, maxG, busy) {
-  if (st === "down") return [RED, RED];               // hour totally dead
-  if (st == null) return [GRAY, GRAY];                // no samples -> dark grey
+  if (st === "down") return [C.RED, C.RED];           // hour totally dead
+  if (st == null) return [C.GRAY, C.GRAY];            // no samples -> dark grey
   // up: no tokens on either side -> FULL purple if slot was processing
   // that minute (thinking); else light grey (idle);
   // otherwise blue (prefill) / green (generated) by volume
   if ((pv == null || pv <= 0) && (gv == null || gv <= 0)) {
-    return busy ? [PROC, PROC] : [LTGRAY, LTGRAY];
+    return busy ? [C.PROC, C.PROC] : [C.LTGRAY, C.LTGRAY];
   }
-  const cP = (pv == null || pv <= 0) ? LTGRAY : BLUES[lvl(pv, maxP)];
-  const cG = (gv == null || gv <= 0) ? LTGRAY : GREENS[lvl(gv, maxG)];
+  const cP = (pv == null || pv <= 0) ? C.LTGRAY : C.BLUES[lvl(pv, maxP)];
+  const cG = (gv == null || gv <= 0) ? C.LTGRAY : C.GREENS[lvl(gv, maxG)];
   return [cP, cG];
 }
 function fmtTok(n) {
@@ -376,6 +410,7 @@ document.addEventListener("mousemove", (e) => {
   } catch (e) {
     const n = new Date(); viewYear = n.getFullYear(); viewMonth = n.getMonth();
   }
+  applyTheme(theme);
   refreshStatus();
   refreshCalendar();
 })();
