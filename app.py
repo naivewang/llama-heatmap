@@ -223,6 +223,7 @@ def api_status():
         "ts": ts,
         "latency": latency,
         "server_url": LLAMA_SERVER_URL,
+        "tz": TIMEZONE,
         "details": details,
         "slots": slots,
     })

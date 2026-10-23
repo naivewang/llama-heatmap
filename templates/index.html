@@ -129,9 +129,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const now0 = new Date();
-let viewYear = now0.getFullYear();
-let viewMonth = now0.getMonth(); // 0-based
+let viewYear, viewMonth; // set from server tz on first data load (see init at bottom)
 const MONTHS = ["January","February","March","April","May","June",
                 "July","August","September","October","November","December"];
 let lastData = {};
@@ -293,8 +291,8 @@ async function showDetail(key, isToday, hour, force) {
   const d = await r.json();
   if (shownDetail !== tag) return; // stale response
   $("dayDetail").style.display = "block";
-  const now = new Date();
-  const nowMin = isToday ? now.getHours() * 60 + now.getMinutes() : -1;
+  const now = serverNow(); // server tz, not the viewer's browser tz
+  const nowMin = isToday ? now.h * 60 + now.min : -1;
   const start = hour == null ? 0 : hour * 60;
   const end = hour == null ? 1440 : start + 60;
   let totP = 0, totG = 0, maxP = 0, maxG = 0;
@@ -352,7 +350,7 @@ async function refreshCalendar() {
 
 $("prev").onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } refreshCalendar(); };
 $("next").onclick = () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } refreshCalendar(); };
-$("today").onclick = () => { const n = new Date(); viewYear = n.getFullYear(); viewMonth = n.getMonth(); refreshCalendar(); };
+$("today").onclick = () => { const n = serverNow(); viewYear = n.y; viewMonth = n.m; refreshCalendar(); };
 
 // tooltip
 const tip = $("tooltip");
@@ -363,8 +361,24 @@ document.addEventListener("mousemove", (e) => {
   else tip.style.display = "none";
 });
 
-refreshStatus();
-refreshCalendar();
+(async function init() {
+  // pick the initial month from the SERVER's timezone so every viewer
+  // (any browser timezone) lands on the same month
+  try {
+    const r = await fetch("/api/status");
+    const s = await r.json();
+    const tz = s.tz || "America/Los_Angeles";
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz,
+      year: "numeric", month: "2-digit" }).formatToParts(new Date());
+    const g = {};
+    parts.forEach(p => g[p.type] = p.value);
+    viewYear = +g.year; viewMonth = +g.month - 1;
+  } catch (e) {
+    const n = new Date(); viewYear = n.getFullYear(); viewMonth = n.getMonth();
+  }
+  refreshStatus();
+  refreshCalendar();
+})();
 setInterval(() => {
   refreshStatus(); refreshCalendar();
   if (detailParams) showDetail(detailParams.key, detailParams.isToday, detailParams.hour, true); // keep open detail fresh
