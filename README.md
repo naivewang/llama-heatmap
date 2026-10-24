@@ -8,6 +8,9 @@ bubbles** showing uptime and token throughput — prefill (blue) vs. generated
 
 No external services needed: one Python file, one template, one SQLite file.
 
+<img width="1287" height="1224" alt="image" src="https://github.com/user-attachments/assets/d7feb0de-406b-4ace-a939-cedf5e621017" />
+
+
 ## Features
 
 - **Health monitoring** — polls `GET /health` every 60 s; per-hour up/down/no-data
