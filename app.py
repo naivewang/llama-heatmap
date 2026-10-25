@@ -243,7 +243,11 @@ def api_status():
 
 def _minute_deltas(rows, col: str, lo: int, hi: int) -> dict[int, int]:
     """Per-minute deltas of a cumulative counter, restart-safe (see /api/day).
-    rows: sqlite rows with ts, proc_start, <col>. Returns {ts: delta}."""
+    rows: sqlite rows with ts, proc_start, <col>.
+    Returns {minute_ts: delta} where minute_ts is the minute the work HAPPENED
+    in: the scrape at T measures the interval (T-60, T], so the delta is
+    attributed to T-60 — the cell labeled 14:00-14:59 then really contains
+    the effort of 14:00-14:59."""
     by_ts = {r["ts"]: r for r in rows}
     out: dict[int, int] = {}
     for ts in range(lo, hi + 1, 60):
@@ -255,10 +259,10 @@ def _minute_deltas(rows, col: str, lo: int, hi: int) -> dict[int, int]:
             if prev["proc_start"] == cur["proc_start"]:
                 d = int(cur[col] - prev[col])
                 if d > 0:
-                    out[ts] = d
+                    out[ts - 60] = d
             else:
                 # server restarted between scrapes: counter ≈ tokens since restart
-                out[ts] = int(cur[col])
+                out[ts - 60] = int(cur[col])
         # else: first-ever row / collection gap -> unknown
     return out
 
@@ -323,13 +327,15 @@ def api_calendar():
     mrows = db_conn().execute(
         """SELECT ts, proc_start, prompt_total, cached_total, predict_total
               FROM metrics WHERE ts >= ? AND ts <= ? ORDER BY ts""",
-        (int(first_day.timestamp()) - 3600, int(last_day.timestamp())),
+        # +60: the scrape at the month's end measures the final minute of the month
+        (int(first_day.timestamp()) - 3600, int(last_day.timestamp()) + 60),
     ).fetchall()
     db_conn().close()
 
-    p_dm = _minute_deltas(mrows, "prompt_total", int(first_day.timestamp()), int(last_day.timestamp()))
-    g_dm = _minute_deltas(mrows, "predict_total", int(first_day.timestamp()), int(last_day.timestamp()))
-    c_dm = _minute_deltas(mrows, "cached_total", int(first_day.timestamp()), int(last_day.timestamp()))
+    m_lo, m_hi = int(first_day.timestamp()), int(last_day.timestamp()) + 60
+    p_dm = _minute_deltas(mrows, "prompt_total", m_lo, m_hi)
+    g_dm = _minute_deltas(mrows, "predict_total", m_lo, m_hi)
+    c_dm = _minute_deltas(mrows, "cached_total", m_lo, m_hi)
 
     def by_day_h(dm):
         grouped: dict[str, list[tuple[int, int]]] = {}
@@ -405,12 +411,13 @@ def api_day():
     rows = db_conn().execute(
         """SELECT ts, proc_start, prompt_total, cached_total, predict_total, busy
               FROM metrics WHERE ts > ? AND ts <= ? ORDER BY ts""",
-        (day_start - 3600, day_end),
+        # +60: the next-midnight scrape measures today's final minute (23:59)
+        (day_start - 3600, day_end + 60),
     ).fetchall()
     db_conn().close()
 
     def deltas(col):
-        dm = _minute_deltas(rows, col, day_start, day_end)
+        dm = _minute_deltas(rows, col, day_start, day_end + 60)
         return [dm.get(day_start + i * 60) for i in range(1440)]
 
     prompt_min = deltas("prompt_total")
