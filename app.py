@@ -63,7 +63,7 @@ def init_db() -> None:
                 predict_total  INTEGER,              -- cumulative generated tokens
                 prompt_tps     REAL,                 -- gauge, avg over scrape window
                 predict_tps    REAL,
-                busy           INTEGER               -- 1 if any slot is_processing at poll time
+                busy           INTEGER               -- 1 if /metrics window showed prefill/decode activity
             )
             """
         )
@@ -105,37 +105,30 @@ def check_health() -> tuple[str, float | None]:
 _METRIC_RE = re.compile(r"^llamacpp:(\w+) ([0-9.eE+-]+)$", re.M)
 
 
-def slots_busy() -> int | None:
-    """1 if any slot is_processing right now, 0 if all idle, None on error.
-    Captured once per poll so 'thinking' minutes (busy but 0 token delta)
-    can be told apart from truly idle minutes."""
-    try:
-        r = requests.get(f"{LLAMA_SERVER_URL}/slots", timeout=5)
-        if r.status_code != 200:
-            return None
-        data = r.json()
-        sl = data.get("slots", []) if isinstance(data, dict) else data
-        return 1 if any(s.get("is_processing") for s in sl) else 0
-    except (requests.RequestException, ValueError):
-        return None
-
-
 def scrape_metrics() -> dict | None:
     """Fetch /metrics once. Returns parsed counters + process start time + busy flag,
-    or None (endpoint disabled -> 501, server down, or parse failure)."""
+    or None (endpoint disabled -> 501, server down, or parse failure).
+
+    busy is derived from the scrape-window throughput gauges (>0 = the server
+    did real prefill/decode work since the last scrape). NOTE: do NOT use
+    /slots here — it posts a task to the llama.cpp server, which resets the
+    --sleep-idle-seconds idle timer and wakes a sleeping server. /slots may
+    only be called on-demand (see /api/status)."""
     try:
         r = requests.get(f"{LLAMA_SERVER_URL}/metrics", timeout=10)
         if r.status_code != 200:
             return None
         vals = {k: float(v) for k, v in _METRIC_RE.findall(r.text)}
+        prompt_tps = vals.get("prompt_tokens_seconds", 0.0)
+        predict_tps = vals.get("predicted_tokens_seconds", 0.0)
         return {
             "proc_start": int(r.headers.get("Process-Start-Time-Unix", 0)) or None,
             "prompt_total": vals.get("prompt_tokens_total"),
             "cached_total": vals.get("prompt_tokens_cached_total"),
             "predict_total": vals.get("tokens_predicted_total"),
-            "prompt_tps": vals.get("prompt_tokens_seconds"),
-            "predict_tps": vals.get("predicted_tokens_seconds"),
-            "busy": slots_busy(),
+            "prompt_tps": prompt_tps,
+            "predict_tps": predict_tps,
+            "busy": 1 if (prompt_tps > 0 or predict_tps > 0) else 0,
         }
     except (requests.RequestException, ValueError):
         return None
