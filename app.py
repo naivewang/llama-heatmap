@@ -63,7 +63,7 @@ def init_db() -> None:
                 predict_total  INTEGER,              -- cumulative generated tokens
                 prompt_tps     REAL,                 -- gauge, avg over scrape window
                 predict_tps    REAL,
-                busy           INTEGER               -- 1 if /metrics window showed prefill/decode activity
+                busy           INTEGER               -- 1 if requests_processing > 0 at scrape time (in-flight inference)
             )
             """
         )
@@ -109,11 +109,13 @@ def scrape_metrics() -> dict | None:
     """Fetch /metrics once. Returns parsed counters + process start time + busy flag,
     or None (endpoint disabled -> 501, server down, or parse failure).
 
-    busy is derived from the scrape-window throughput gauges (>0 = the server
-    did real prefill/decode work since the last scrape). NOTE: do NOT use
-    /slots here — it posts a task to the llama.cpp server, which resets the
-    --sleep-idle-seconds idle timer and wakes a sleeping server. /slots may
-    only be called on-demand (see /api/status)."""
+    busy comes from the requests_processing gauge (in-flight requests) — the
+    true 'inferencing in flight' signal, and sleep-safe: /metrics is one of
+    the timer-exempt endpoints, unlike /slots (which would reset
+    --sleep-idle-seconds and wake a sleeping server). A request waiting
+    through a wake/reload shows in requests_deferred, NOT processing, so
+    recovery minutes correctly stay non-purple.
+    Old builds without the gauge fall back to window throughput > 0."""
     try:
         r = requests.get(f"{LLAMA_SERVER_URL}/metrics", timeout=10)
         if r.status_code != 200:
@@ -121,6 +123,9 @@ def scrape_metrics() -> dict | None:
         vals = {k: float(v) for k, v in _METRIC_RE.findall(r.text)}
         prompt_tps = vals.get("prompt_tokens_seconds", 0.0)
         predict_tps = vals.get("predicted_tokens_seconds", 0.0)
+        rp = vals.get("requests_processing")
+        busy = (1 if rp > 0 else 0) if rp is not None \
+               else (1 if (prompt_tps > 0 or predict_tps > 0) else 0)
         return {
             "proc_start": int(r.headers.get("Process-Start-Time-Unix", 0)) or None,
             "prompt_total": vals.get("prompt_tokens_total"),
@@ -128,7 +133,7 @@ def scrape_metrics() -> dict | None:
             "predict_total": vals.get("tokens_predicted_total"),
             "prompt_tps": prompt_tps,
             "predict_tps": predict_tps,
-            "busy": 1 if (prompt_tps > 0 or predict_tps > 0) else 0,
+            "busy": busy,
         }
     except (requests.RequestException, ValueError):
         return None
