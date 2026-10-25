@@ -202,26 +202,18 @@ def api_status():
     except requests.RequestException:
         pass
 
+    # Slot state is SYNTHESIZED from the last poller scrape's busy flag — never
+    # call /slots here: this endpoint is hit by the page's 59s auto-refresh,
+    # and /slots posts a task to llama.cpp, which resets --sleep-idle-seconds
+    # (and wakes a sleeping server). A <=60s-stale state is fine for a monitor.
     slots = None
-    try:
-        r = requests.get(f"{LLAMA_SERVER_URL}/slots", timeout=5)
-        if r.status_code == 200:
-            data = r.json()
-            slot_list = data.get("slots", []) if isinstance(data, dict) else data
-            def slot_state(s):
-                # newer/older builds may omit "state"; fall back to is_processing
-                st = s.get("state")
-                if st:
-                    return st
-                return "processing" if s.get("is_processing") else "idle"
-
-            slots = [
-                {"id": s.get("id"), "state": slot_state(s),
-                 "n_ctx": s.get("n_ctx"), "model": s.get("model_alias")}
-                for s in slot_list
-            ]
-    except requests.RequestException:
-        pass
+    if details and details.get("total_slots"):
+        with db_conn() as conn:
+            mrow = conn.execute(
+                "SELECT busy FROM metrics ORDER BY ts DESC LIMIT 1").fetchone()
+        busy = bool(mrow and mrow["busy"])
+        slots = [{"id": i, "state": "processing" if busy else "idle"}
+                 for i in range(details["total_slots"])]
 
     return jsonify({
         "status": status,
