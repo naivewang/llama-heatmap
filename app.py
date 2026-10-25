@@ -184,7 +184,8 @@ def index():
 
 @app.route("/api/status")
 def api_status():
-    """Latest health sample + live server details (/props and /slots)."""
+    """Latest health sample + live server details (/props; slot badge is
+    synthesized from the last /metrics scrape — see below)."""
     with db_conn() as conn:
         row = conn.execute(
             "SELECT ts, status, latency FROM samples ORDER BY ts DESC LIMIT 1"
