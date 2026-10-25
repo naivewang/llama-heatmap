@@ -249,21 +249,23 @@ def _minute_deltas(rows, col: str, lo: int, hi: int) -> dict[int, int]:
     attributed to T-60 — the cell labeled 14:00-14:59 then really contains
     the effort of 14:00-14:59."""
     by_ts = {r["ts"]: r for r in rows}
+    ts_list = sorted(by_ts)
     out: dict[int, int] = {}
-    for ts in range(lo, hi + 1, 60):
-        cur = by_ts.get(ts)
-        if cur is None or cur[col] is None:
+    for prev_ts, cur_ts in zip(ts_list, ts_list[1:]):
+        if cur_ts - prev_ts > 120:
+            continue  # long gap: don't fabricate a per-minute split (stays grey)
+        prev, cur = by_ts[prev_ts], by_ts[cur_ts]
+        if cur[col] is None or prev[col] is None:
             continue
-        prev = by_ts.get(ts - 60)
-        if prev is not None and prev[col] is not None:
-            if prev["proc_start"] == cur["proc_start"]:
-                d = int(cur[col] - prev[col])
-                if d > 0:
-                    out[ts - 60] = d
-            else:
-                # server restarted between scrapes: counter ≈ tokens since restart
-                out[ts - 60] = int(cur[col])
-        # else: first-ever row / collection gap -> unknown
+        if prev["proc_start"] == cur["proc_start"]:
+            d = int(cur[col] - prev[col])
+        else:
+            # server restarted between scrapes: counter ≈ tokens since restart
+            d = int(cur[col])
+        # one missed scrape (120s gap): full delta goes to the LATER minute —
+        # nothing is lost from the totals, at most one minute is slightly inflated
+        if d > 0:
+            out[cur_ts - 60] = d
     return out
 
 
