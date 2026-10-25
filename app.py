@@ -406,13 +406,9 @@ def api_day():
     busy_by_ts = {r["ts"]: r["busy"] for r in rows}
     busy_min = [busy_by_ts.get(day_start + i * 60) for i in range(1440)]
 
-    # Wake/reload recovery: the first 'up' minute after a 'sleep' minute was
-    # woken by a real request (the monitor no longer touches wake-capable
-    # endpoints), so it was processing even if the model reload ate the whole
-    # minute with zero token movement — mark it busy so it paints purple.
-    for i in range(1, 1440):
-        if cells[i] == "up" and cells[i - 1] == "sleep" and not busy_min[i]:
-            busy_min[i] = 1
+    # Note: a wake/reload minute (model coming back to VRAM, 0 tokens) is
+    # deliberately NOT marked busy — purple means in-flight INFERENCING only;
+    # recovery shows as plain idle grey.
 
     return jsonify({
         "date": date_str, "tz": TIMEZONE, "cells": cells,
