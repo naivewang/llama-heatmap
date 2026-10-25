@@ -381,8 +381,8 @@ async function showDetail(key, isToday, hour, force) {
     if (d.gen_min[i] != null) { totG += d.gen_min[i]; maxG = Math.max(maxG, d.gen_min[i]); }
   }
   $("dayLabel").textContent = (hour == null
-    ? `${key} — per minute (${d.tz}) · day total: `
-    : `${key} ${pad(hour)}:00–${pad(hour)}:59 — per minute (${d.tz}) · hour total: `) +
+    ? `${key} — per minute · day total: `
+    : `${key} ${pad(hour)}:00–${pad(hour)}:59 — per minute · hour total: `) +
     `↑${fmtTok(totP)} · ↓${fmtTok(totG)}` + (hour == null ? cachePct(d.totals?.cached, totP) : "");
   const grid = $("minGrid");
   grid.innerHTML = "";
