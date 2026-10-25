@@ -243,29 +243,23 @@ def api_status():
 
 def _minute_deltas(rows, col: str, lo: int, hi: int) -> dict[int, int]:
     """Per-minute deltas of a cumulative counter, restart-safe (see /api/day).
-    rows: sqlite rows with ts, proc_start, <col>.
-    Returns {minute_ts: delta} where minute_ts is the minute the work HAPPENED
-    in: the scrape at T measures the interval (T-60, T], so the delta is
-    attributed to T-60 — the cell labeled 14:00-14:59 then really contains
-    the effort of 14:00-14:59."""
+    rows: sqlite rows with ts, proc_start, <col>. Returns {ts: delta}."""
     by_ts = {r["ts"]: r for r in rows}
-    ts_list = sorted(by_ts)
     out: dict[int, int] = {}
-    for prev_ts, cur_ts in zip(ts_list, ts_list[1:]):
-        if cur_ts - prev_ts > 120:
-            continue  # long gap: don't fabricate a per-minute split (stays grey)
-        prev, cur = by_ts[prev_ts], by_ts[cur_ts]
-        if cur[col] is None or prev[col] is None:
+    for ts in range(lo, hi + 1, 60):
+        cur = by_ts.get(ts)
+        if cur is None or cur[col] is None:
             continue
-        if prev["proc_start"] == cur["proc_start"]:
-            d = int(cur[col] - prev[col])
-        else:
-            # server restarted between scrapes: counter ≈ tokens since restart
-            d = int(cur[col])
-        # one missed scrape (120s gap): full delta goes to the LATER minute —
-        # nothing is lost from the totals, at most one minute is slightly inflated
-        if d > 0:
-            out[cur_ts - 60] = d
+        prev = by_ts.get(ts - 60)
+        if prev is not None and prev[col] is not None:
+            if prev["proc_start"] == cur["proc_start"]:
+                d = int(cur[col] - prev[col])
+                if d > 0:
+                    out[ts] = d
+            else:
+                # server restarted between scrapes: counter ≈ tokens since restart
+                out[ts] = int(cur[col])
+        # else: first-ever row / collection gap -> unknown
     return out
 
 
@@ -329,15 +323,13 @@ def api_calendar():
     mrows = db_conn().execute(
         """SELECT ts, proc_start, prompt_total, cached_total, predict_total
               FROM metrics WHERE ts >= ? AND ts <= ? ORDER BY ts""",
-        # +60: the scrape at the month's end measures the final minute of the month
-        (int(first_day.timestamp()) - 3600, int(last_day.timestamp()) + 60),
+        (int(first_day.timestamp()) - 3600, int(last_day.timestamp())),
     ).fetchall()
     db_conn().close()
 
-    m_lo, m_hi = int(first_day.timestamp()), int(last_day.timestamp()) + 60
-    p_dm = _minute_deltas(mrows, "prompt_total", m_lo, m_hi)
-    g_dm = _minute_deltas(mrows, "predict_total", m_lo, m_hi)
-    c_dm = _minute_deltas(mrows, "cached_total", m_lo, m_hi)
+    p_dm = _minute_deltas(mrows, "prompt_total", int(first_day.timestamp()), int(last_day.timestamp()))
+    g_dm = _minute_deltas(mrows, "predict_total", int(first_day.timestamp()), int(last_day.timestamp()))
+    c_dm = _minute_deltas(mrows, "cached_total", int(first_day.timestamp()), int(last_day.timestamp()))
 
     def by_day_h(dm):
         grouped: dict[str, list[tuple[int, int]]] = {}
@@ -413,13 +405,12 @@ def api_day():
     rows = db_conn().execute(
         """SELECT ts, proc_start, prompt_total, cached_total, predict_total, busy
               FROM metrics WHERE ts > ? AND ts <= ? ORDER BY ts""",
-        # +60: the next-midnight scrape measures today's final minute (23:59)
-        (day_start - 3600, day_end + 60),
+        (day_start - 3600, day_end),
     ).fetchall()
     db_conn().close()
 
     def deltas(col):
-        dm = _minute_deltas(rows, col, day_start, day_end + 60)
+        dm = _minute_deltas(rows, col, day_start, day_end)
         return [dm.get(day_start + i * 60) for i in range(1440)]
 
     prompt_min = deltas("prompt_total")
@@ -427,29 +418,12 @@ def api_day():
     gen_min = deltas("predict_total")
     busy_by_ts = {r["ts"]: r["busy"] for r in rows}
     busy_min = [busy_by_ts.get(day_start + i * 60) for i in range(1440)]
-
-    # A minute is RESOLVED once the scrape closing its window has arrived. Only
-    # then is "busy but 0 tokens" (purple) a final verdict; an open minute must
-    # not flash purple before its tokens are known, then flip to a token bubble.
-    by_ts = {r["ts"]: r for r in rows}
-    ts_list = sorted(by_ts)
-    resolved_min = [False] * 1440
-    for prev_ts, cur_ts in zip(ts_list, ts_list[1:]):
-        if cur_ts - prev_ts > 120:
-            continue
-        if by_ts[prev_ts]["prompt_total"] is None or by_ts[cur_ts]["prompt_total"] is None:
-            continue
-        i = (cur_ts - 60 - day_start) // 60
-        if 0 <= i < 1440:
-            resolved_min[i] = True
-
     return jsonify({
         "date": date_str, "tz": TIMEZONE, "cells": cells,
         "prompt_min": prompt_min,
         "cached_min": cached_min,
         "gen_min": gen_min,
         "busy_min": busy_min,
-        "resolved_min": resolved_min,
         "totals": {
             "prompt": sum(v or 0 for v in prompt_min),
             "cached": sum(v or 0 for v in cached_min),
