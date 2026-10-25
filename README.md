@@ -8,8 +8,10 @@ bubbles** showing uptime and token throughput — prefill (blue) vs. generated
 
 No external services needed: one Python file, one template, one SQLite file.
 
-<img width="1287" height="1224" alt="image" src="https://github.com/user-attachments/assets/d7feb0de-406b-4ace-a939-cedf5e621017" />
+<img width="1287" height="1224" alt="llama-heatmap screenshot" src="https://github.com/user-attachments/assets/d7feb0de-406b-4ace-a939-cedf5e621017" />
 
+See [DESIGN.md](DESIGN.md) for the full system design — the sleep-safety
+principle, signal sources, delta semantics, and the color language.
 
 ## Features
 
@@ -17,7 +19,7 @@ No external services needed: one Python file, one template, one SQLite file.
   status per day, plus live status card (model, build, slot state, latency).
 - **Token throughput** — scrapes the llama.cpp `/metrics` endpoint
   (requires `--metrics` on the server) and computes per-minute deltas of
-  `prompt_tokens_processed_total` / `prompt_tokens_cached_total` /
+  `prompt_tokens_total` / `prompt_tokens_cached_total` /
   `tokens_predicted_total`.
   - **Restart-safe**: the `Process-Start-Time-Unix` response header is tracked;
     when the counter resets (server restart), the delta is derived from the new
@@ -27,14 +29,21 @@ No external services needed: one Python file, one template, one SQLite file.
   - **left (blue shades)** = prefill tokens in that hour
   - **right (green shades)** = generated tokens in that hour
   - 5 GitHub-style shade levels, √-scaled to the month max
-  - 🔴 red = server down that hour · light grey = up, 0 tokens · dark grey = no data
+  - 🔴 red = server down that hour · 🟠 amber = asleep · 🟣 purple =
+    in-flight inference, 0 tokens yet (long prefill) · light grey = up, 0 tokens ·
+    dark grey = no data
 - **Detail views** — click an hour bubble → its 60 per-minute cells;
   click a day number → the full day (1440 cells, scrollable). Both show
   hour/day totals (prefill & generated).
 - **Totals everywhere** — per hour (tooltip), per day (tooltip + detail header),
   per month (calendar header).
-- **Auto-refresh** every 60 s, timezone-correct "now" highlighting
-  (server timezone, default `America/Los_Angeles`).
+- **Auto-refresh** every 59 s (deliberately off-phase from the 60 s poll),
+  timezone-correct "now" highlighting (server timezone, default
+  `America/Los_Angeles`) — every viewer sees the same board regardless of
+  their local timezone.
+- **Sleep-aware & sleep-safe** — detects `is_sleeping` via `/props` and only
+  ever calls timer-exempt endpoints (`/health`, `/props`, `/models`,
+  `/metrics`), so it never interferes with `--sleep-idle-seconds`.
 - ~6 months of history retained automatically.
 
 ## Quickstart
@@ -72,7 +81,7 @@ Heatmap HTTP port: `app.run(port=5000)` at the bottom of `app.py`.
 
 | Endpoint                  | Returns                                                              |
 |---------------------------|----------------------------------------------------------------------|
-| `/api/status`             | Latest health sample + live `/props` & `/slots` (model, slots, build) |
+| `/api/status`             | Latest health sample + live `/props` (model, build); slot badge synthesized from the last `/metrics` scrape |
 | `/api/calendar?year&month`| Per-hour status + per-hour prefill/generated tokens, day & month totals |
 | `/api/day?date=YYYY-MM-DD`| Per-minute status + per-minute token deltas + day totals             |
 
@@ -81,7 +90,8 @@ Heatmap HTTP port: `app.run(port=5000)` at the bottom of `app.py`.
 - A daemon thread appends one row per poll to SQLite:
   - `samples(ts, status, latency)` — from `/health`
   - `metrics(ts, proc_start, prompt_total, cached_total, predict_total, ...)`
-    — cumulative counters from `/metrics`, stored as-is.
+    — cumulative counters + `requests_processing`-derived busy flag from
+    `/metrics`, stored as-is.
 - **Deltas are computed at read time** from consecutive rows: normal minute →
   `cur - prev`; `proc_start` changed → `cur` (≈ tokens since restart);
   first row / gap → `null`. This makes the history self-healing: lost polls or
