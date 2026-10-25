@@ -208,12 +208,14 @@ def api_status():
     # (and wakes a sleeping server). A <=60s-stale state is fine for a monitor.
     slots = None
     if details and details.get("total_slots"):
-        with db_conn() as conn:
-            mrow = conn.execute(
-                "SELECT busy FROM metrics ORDER BY ts DESC LIMIT 1").fetchone()
-        busy = bool(mrow and mrow["busy"])
-        slots = [{"id": i, "state": "processing" if busy else "idle"}
-                 for i in range(details["total_slots"])]
+        if details.get("is_sleeping"):
+            state = "asleep"
+        else:
+            with db_conn() as conn:
+                mrow = conn.execute(
+                    "SELECT busy FROM metrics ORDER BY ts DESC LIMIT 1").fetchone()
+            state = "processing" if (mrow and mrow["busy"]) else "idle"
+        slots = [{"id": i, "state": state} for i in range(details["total_slots"])]
 
     return jsonify({
         "status": status,
