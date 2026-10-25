@@ -77,15 +77,27 @@ def init_db() -> None:
 
 
 # ------------------------------------------------------------- poller ------
+def server_asleep() -> bool | None:
+    """True/False from /props, None if unreachable. /health answers 200 even while
+    the server is asleep, so sleep can only be told from this flag."""
+    try:
+        r = requests.get(f"{LLAMA_SERVER_URL}/props", timeout=5)
+        if r.status_code == 200:
+            return bool(r.json().get("is_sleeping"))
+    except (requests.RequestException, ValueError):
+        pass
+    return None
+
+
 def check_health() -> tuple[str, float | None]:
-    """Return (status, latency_ms). status is 'up' or 'down'."""
+    """Return (status, latency_ms). status is 'up', 'sleep' or 'down'."""
     try:
         t0 = time.monotonic()
         r = requests.get(f"{LLAMA_SERVER_URL}/health", timeout=10)
         latency = (time.monotonic() - t0) * 1000
-        if r.status_code == 200:
-            return "up", latency
-        return "down", latency
+        if r.status_code != 200:
+            return "down", latency
+        return ("sleep" if server_asleep() else "up"), latency
     except requests.RequestException:
         return "down", None
 
@@ -141,7 +153,7 @@ def poller_loop() -> None:
                         "INSERT OR REPLACE INTO samples (ts, status, latency) VALUES (?, ?, ?)",
                         (int(now.timestamp()), status, latency),
                     )
-                m = scrape_metrics() if status == "up" else None
+                m = scrape_metrics() if status in ("up", "sleep") else None
                 if m:
                     with db_conn() as conn:
                         conn.execute(
@@ -256,12 +268,13 @@ def api_calendar():
     """
     Per-hour status for a month (24 cells per day).
     Returns: { year, month, tz,
-               cells:    { 'YYYY-MM-DD': ["up"/"down"/null, x24] },
+               cells:    { 'YYYY-MM-DD': ["up"/"down"/"sleep"/null, x24] },
                prompt_h: { 'YYYY-MM-DD': [int|null, x24] }  prefill tokens per hour,
                gen_h:    { 'YYYY-MM-DD': [int|null, x24] }  generated tokens per hour,
                day_totals, month_totals }
-    A status cell is 'up' if >= 50% of its samples were up, 'down' if majority down,
-    null if no samples in that hour.
+    A cell is 'sleep' when EVERY sample in the hour was asleep, 'up' when any
+    sample was up (token shading then applies), 'down' when the hour was totally
+    dead (no up, no sleep), null if no samples at all.
     """
     year = request.args.get("year", type=int) or datetime.now(TZ).year
     month = request.args.get("month", type=int) or datetime.now(TZ).month
@@ -294,9 +307,16 @@ def api_calendar():
                 day_cells.append(None)
                 continue
             # red only when the hour was TOTALLY dead (zero up-samples);
-            # a partial outage still shows the token shading of the recovered part
+            # a partial outage still shows the token shading of the recovered part.
+            # amber when the server was asleep the entire hour (behaves like 'down':
+            # one solid color, no token halves).
             ups = sum(1 for s in samples if s == "up")
-            day_cells.append("up" if ups > 0 else "down")
+            if ups > 0:
+                day_cells.append("up")
+            elif all(s == "sleep" for s in samples):
+                day_cells.append("sleep")
+            else:
+                day_cells.append("down")
         cells[key] = day_cells
 
     # per-30-min token sums (prefill / generated) + day & month totals
