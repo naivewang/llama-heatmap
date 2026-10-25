@@ -427,12 +427,29 @@ def api_day():
     gen_min = deltas("predict_total")
     busy_by_ts = {r["ts"]: r["busy"] for r in rows}
     busy_min = [busy_by_ts.get(day_start + i * 60) for i in range(1440)]
+
+    # A minute is RESOLVED once the scrape closing its window has arrived. Only
+    # then is "busy but 0 tokens" (purple) a final verdict; an open minute must
+    # not flash purple before its tokens are known, then flip to a token bubble.
+    by_ts = {r["ts"]: r for r in rows}
+    ts_list = sorted(by_ts)
+    resolved_min = [False] * 1440
+    for prev_ts, cur_ts in zip(ts_list, ts_list[1:]):
+        if cur_ts - prev_ts > 120:
+            continue
+        if by_ts[prev_ts]["prompt_total"] is None or by_ts[cur_ts]["prompt_total"] is None:
+            continue
+        i = (cur_ts - 60 - day_start) // 60
+        if 0 <= i < 1440:
+            resolved_min[i] = True
+
     return jsonify({
         "date": date_str, "tz": TIMEZONE, "cells": cells,
         "prompt_min": prompt_min,
         "cached_min": cached_min,
         "gen_min": gen_min,
         "busy_min": busy_min,
+        "resolved_min": resolved_min,
         "totals": {
             "prompt": sum(v or 0 for v in prompt_min),
             "cached": sum(v or 0 for v in cached_min),

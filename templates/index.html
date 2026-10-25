@@ -219,15 +219,17 @@ function lvl(v, max) {
   if (!max || max <= 0) return v > 0 ? 0 : -1;
   return Math.min(4, Math.floor(Math.sqrt(v / max) * 5));
 }
-function halves(st, pv, maxP, gv, maxG, busy) {
+function halves(st, pv, maxP, gv, maxG, busy, resolved = true) {
   if (st === "down") return [C.RED, C.RED];           // interval totally dead
   if (st === "sleep") return [C.SLEEP, C.SLEEP];      // asleep: solid amber, like down
   if (st == null) return [C.GRAY, C.GRAY];            // no samples -> dark grey
-  // up: no tokens on either side -> FULL purple if slot was processing
-  // that minute (thinking); else light grey (idle);
+  // up: no tokens on either side -> FULL purple if slot was processing that
+  // minute (thinking) — but only once the minute is RESOLVED (its closing
+  // scrape has landed); an open minute stays neutral grey, otherwise it would
+  // flash purple and flip to a token bubble one minute later.
   // otherwise blue (prefill) / green (generated) by volume
   if ((pv == null || pv <= 0) && (gv == null || gv <= 0)) {
-    return busy ? [C.PROC, C.PROC] : [C.LTGRAY, C.LTGRAY];
+    return (busy && resolved) ? [C.PROC, C.PROC] : [C.LTGRAY, C.LTGRAY];
   }
   const cP = (pv == null || pv <= 0) ? C.LTGRAY : C.BLUES[lvl(pv, maxP)];
   const cG = (gv == null || gv <= 0) ? C.LTGRAY : C.GREENS[lvl(gv, maxG)];
@@ -398,12 +400,13 @@ async function showDetail(key, isToday, hour, force) {
       const pv = d.prompt_min[idx], gv = d.gen_min[idx];
       const div = document.createElement("div");
       const busy = d.busy_min ? d.busy_min[idx] : null;
+      const resolved = d.resolved_min ? d.resolved_min[idx] : true;
       div.className = "m" + (st ? " " + st : "") + (idx === nowMin ? " now" : "");
-      const [l, r] = halves(st, pv, maxP, gv, maxG, busy);
+      const [l, r] = halves(st, pv, maxP, gv, maxG, busy, resolved);
       div.innerHTML = `<span style="background:${l}"></span><span style="background:${r}"></span>`;
       div.title = `${pad(h)}:${pad(m)} — ` + (st === "up" ? "up" : st === "down" ? "DOWN" : st === "sleep" ? "asleep" : "no data") +
         ` · ↑${fmtTok(pv)} · ↓${fmtTok(gv)}` +
-        (busy ? " · processing" : "");
+        (busy && resolved ? " · processing" : !resolved ? " · in progress" : "");
       frag.appendChild(div);
     }
   }
