@@ -136,7 +136,8 @@ then *how much flowed?*
 | State (hour / minute)                        | Rendering                                    |
 |----------------------------------------------|----------------------------------------------|
 | **down** — zero `up` samples in the window   | solid **red**                                |
-| **sleep** — all samples `asleep`             | solid **amber**                              |
+| **sleep** — all samples `asleep`             | solid **warm (yellow-tinted) grey** — muted, close to idle grey but warmer |
+
 | **up, in flight, 0 tokens across the meter** | solid **purple** (`busy=1`, no delta) — a long prefill mid-flight is the canonical case |
 | **up, idle, 0 tokens**                       | solid **light grey**                         |
 | **up, tokens moved**                         | split bubble: **blue** half = prefill, **green** half = generated, each shaded in 5 GitHub-style levels, √-scaled to the month max (keeps small hours visible) |

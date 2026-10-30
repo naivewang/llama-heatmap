@@ -29,7 +29,7 @@ principle, signal sources, delta semantics, and the color language.
   - **left (blue shades)** = prefill tokens in that hour
   - **right (green shades)** = generated tokens in that hour
   - 5 GitHub-style shade levels, √-scaled to the month max
-  - 🔴 red = server down that hour · 🟠 amber = asleep · 🟣 purple =
+  - 🔴 red = server down that hour · ⚪ warm grey = asleep · 🟣 purple =
     in-flight inference, 0 tokens yet (long prefill) · light grey = up, 0 tokens ·
     dark grey = no data
 - **Detail views** — click an hour bubble → its 60 per-minute cells;
