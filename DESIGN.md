@@ -130,12 +130,18 @@ Consequences:
 - **DST days (23 h or 25 h local days)** — cells are indexed by
   *wall-clock* minute of day, never by epoch offset from midnight. The
   epoch query window is a generous 25 h and rows are filtered/mapped by
-  local date. On the fall-back day the repeated 1 AM hour occurs twice;
-  a 1440-cell strip cannot show both, so the **second occurrence wins**
-  (last write per wall-clock minute). Day/hour totals use the same rule,
-  so calendar totals and the day view always agree. (Bug found live on
-  2026-11-01: epoch mapping pushed the second 1 AM hour into the 02:xx
-  cells and made collection look "stopped" for the hour after the fallback.)
+  local date.
+  - *Fall-back (25 h)*: the repeated 1 AM hour occurs twice. **Statistics
+    are true** — hour/day/month totals sum *both* occurrences (real work is
+    real work). The 60 display cells can only show one, so the **second
+    occurrence wins** there; the day total therefore exceeds the sum of the
+    visible cells by exactly the first 1 AM hour.
+  - *Spring-forward (23 h)*: the 02:00–02:59 wall-clock hour never existed,
+    so those cells honestly show "no data"; every real minute maps to a
+    unique cell and totals are automatically true.
+  (Bug found live on 2026-11-01: epoch mapping pushed the second 1 AM hour
+  into the 02:xx cells and made collection look "stopped" for the hour
+  after the fallback.)
 
 ## 6. Visual language: state first, volume second
 

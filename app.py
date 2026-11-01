@@ -324,22 +324,20 @@ def api_calendar():
     g_dm = _minute_deltas(mrows, "predict_total", int(first_day.timestamp()), int(last_day.timestamp()))
     c_dm = _minute_deltas(mrows, "cached_total", int(first_day.timestamp()), int(last_day.timestamp()))
 
+    # TRUE statistics: every real minute counts. On the DST fall-back day the
+    # repeated 1 AM hour contributes TWICE to hour/day/month totals (real work
+    # is real work). Only the 60 display cells can't show both occurrences.
     def by_day_h(dm):
-        # {date: [(wall_clock_minute, value)]}; sorted ts so that on the
-        # DST fall-back day the repeated hour's second occurrence wins.
         grouped: dict[str, list[tuple[int, int]]] = {}
-        for ts, v in sorted(dm.items()):
+        for ts, v in dm.items():
             dtm = datetime.fromtimestamp(ts, TZ)
             grouped.setdefault(dtm.strftime("%Y-%m-%d"), []).append((dtm.hour * 60 + dtm.minute, v))
         return grouped
 
     def by_day_total(dm):
-        per_min: dict[tuple[str, int], int] = {}
-        for ts, v in sorted(dm.items()):
-            dtm = datetime.fromtimestamp(ts, TZ)
-            per_min[(dtm.strftime("%Y-%m-%d"), dtm.hour * 60 + dtm.minute)] = v
         out: dict[str, int] = {}
-        for (d, _), v in per_min.items():
+        for ts, v in dm.items():
+            d = datetime.fromtimestamp(ts, TZ).strftime("%Y-%m-%d")
             out[d] = out.get(d, 0) + v
         return out
 
@@ -424,11 +422,17 @@ def api_day():
         return out
 
     def deltas(col):
-        return wall_clock_map(_minute_deltas(rows, col, day_start, day_end))
+        """-> (1440 wall-clock array, TRUE day total).
+        The array can't show the fall-back day's repeated hour twice (second
+        occurrence wins), but the total sums every real minute of the date."""
+        dm = _minute_deltas(rows, col, day_start, day_end)
+        total = sum(v for ts, v in dm.items()
+                    if datetime.fromtimestamp(ts, TZ).strftime("%Y-%m-%d") == date_str)
+        return wall_clock_map(dm), total
 
-    prompt_min = deltas("prompt_total")
-    cached_min = deltas("cached_total")
-    gen_min = deltas("predict_total")
+    prompt_min, prompt_sum = deltas("prompt_total")
+    cached_min, cached_sum = deltas("cached_total")
+    gen_min, gen_sum = deltas("predict_total")
     busy_min = wall_clock_map({r["ts"]: r["busy"] for r in rows})
 
     # Note: a wake/reload minute (model coming back to VRAM, 0 tokens) is
@@ -441,11 +445,7 @@ def api_day():
         "cached_min": cached_min,
         "gen_min": gen_min,
         "busy_min": busy_min,
-        "totals": {
-            "prompt": sum(v or 0 for v in prompt_min),
-            "cached": sum(v or 0 for v in cached_min),
-            "gen": sum(v or 0 for v in gen_min),
-        },
+        "totals": {"prompt": prompt_sum, "cached": cached_sum, "gen": gen_sum},
     })
 
 
