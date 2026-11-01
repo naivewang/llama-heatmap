@@ -325,16 +325,21 @@ def api_calendar():
     c_dm = _minute_deltas(mrows, "cached_total", int(first_day.timestamp()), int(last_day.timestamp()))
 
     def by_day_h(dm):
+        # {date: [(wall_clock_minute, value)]}; sorted ts so that on the
+        # DST fall-back day the repeated hour's second occurrence wins.
         grouped: dict[str, list[tuple[int, int]]] = {}
-        for ts, v in dm.items():
+        for ts, v in sorted(dm.items()):
             dtm = datetime.fromtimestamp(ts, TZ)
-            grouped.setdefault(dtm.strftime("%Y-%m-%d"), []).append((dtm.hour, v))
+            grouped.setdefault(dtm.strftime("%Y-%m-%d"), []).append((dtm.hour * 60 + dtm.minute, v))
         return grouped
 
     def by_day_total(dm):
+        per_min: dict[tuple[str, int], int] = {}
+        for ts, v in sorted(dm.items()):
+            dtm = datetime.fromtimestamp(ts, TZ)
+            per_min[(dtm.strftime("%Y-%m-%d"), dtm.hour * 60 + dtm.minute)] = v
         out: dict[str, int] = {}
-        for ts, v in dm.items():
-            d = datetime.fromtimestamp(ts, TZ).strftime("%Y-%m-%d")
+        for (d, _), v in per_min.items():
             out[d] = out.get(d, 0) + v
         return out
 
@@ -347,10 +352,10 @@ def api_calendar():
     for day in range(calendar.monthrange(year, month)[1]):
         key = (first_day + timedelta(days=day)).strftime("%Y-%m-%d")
         ps, gs = [None] * 24, [None] * 24
-        for s30, v in p_grp.get(key, []):
-            ps[s30] = (ps[s30] or 0) + v
-        for s30, v in g_grp.get(key, []):
-            gs[s30] = (gs[s30] or 0) + v
+        for minute, v in p_grp.get(key, []):
+            ps[minute // 60] = (ps[minute // 60] or 0) + v
+        for minute, v in g_grp.get(key, []):
+            gs[minute // 60] = (gs[minute // 60] or 0) + v
         dp, dg = sum(v or 0 for v in ps), sum(v or 0 for v in gs)
         prompt_h[key], gen_h[key], day_totals[key] = ps, gs, {"prompt": dp, "gen": dg, "cached": c_tot.get(key, 0)}
         month_prompt, month_gen = month_prompt + dp, month_gen + dg
@@ -377,7 +382,12 @@ def api_day():
     except ValueError:
         return jsonify({"error": "bad date, use YYYY-MM-DD"}), 400
 
-    start, end = int(day.timestamp()), int(day.timestamp()) + 86399
+    # Local days can be 23 or 25 hours long (DST), so the epoch window is
+    # generous and rows are filtered/mapped by WALL-CLOCK date+minute.
+    # On the fall-back day the 1 AM hour occurs twice; a 1440-cell strip
+    # cannot show both, so the second occurrence wins (last write, sorted ts).
+    day_start = int(day.timestamp())
+    start, end = day_start, day_start + 25 * 3600
     rows = db_conn().execute(
         "SELECT ts, status FROM samples WHERE ts >= ? AND ts <= ? ORDER BY ts",
         (start, end),
@@ -387,6 +397,8 @@ def api_day():
     by_min = {}
     for r in rows:
         dt = datetime.fromtimestamp(r["ts"], TZ)
+        if dt.strftime("%Y-%m-%d") != date_str:
+            continue
         by_min[dt.hour * 60 + dt.minute] = r["status"]
 
     cells = [by_min.get(i) for i in range(1440)]
@@ -394,23 +406,30 @@ def api_day():
     # per-minute token deltas from cumulative /metrics counters.
     # Restart-safe: only diff consecutive rows with the same proc_start;
     # on a proc_start change record the counter value itself (tokens since boot).
-    day_start, day_end = int(day.timestamp()), int(day.timestamp()) + 86399
+    day_end = end
     rows = db_conn().execute(
         """SELECT ts, proc_start, prompt_total, cached_total, predict_total, busy
-              FROM metrics WHERE ts > ? AND ts <= ? ORDER BY ts""",
+              FROM metrics WHERE ts >= ? AND ts <= ? ORDER BY ts""",
         (day_start - 3600, day_end),
     ).fetchall()
     db_conn().close()
 
+    def wall_clock_map(dm: dict[int, int]) -> list:
+        """{epoch: value} -> 1440 array indexed by wall-clock minute of day."""
+        out = [None] * 1440
+        for ts, v in sorted(dm.items()):
+            dtm = datetime.fromtimestamp(ts, TZ)
+            if dtm.strftime("%Y-%m-%d") == date_str:
+                out[dtm.hour * 60 + dtm.minute] = v  # repeated hour: later occurrence wins
+        return out
+
     def deltas(col):
-        dm = _minute_deltas(rows, col, day_start, day_end)
-        return [dm.get(day_start + i * 60) for i in range(1440)]
+        return wall_clock_map(_minute_deltas(rows, col, day_start, day_end))
 
     prompt_min = deltas("prompt_total")
     cached_min = deltas("cached_total")
     gen_min = deltas("predict_total")
-    busy_by_ts = {r["ts"]: r["busy"] for r in rows}
-    busy_min = [busy_by_ts.get(day_start + i * 60) for i in range(1440)]
+    busy_min = wall_clock_map({r["ts"]: r["busy"] for r in rows})
 
     # Note: a wake/reload minute (model coming back to VRAM, 0 tokens) is
     # deliberately NOT marked busy — purple means in-flight INFERENCING only;

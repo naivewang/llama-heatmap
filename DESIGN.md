@@ -127,6 +127,15 @@ Consequences:
   live and then freezes. This "latest scrape wins" rule was chosen over
   stricter window attribution because for a live dashboard, **a cell must
   never visibly shift under the user's eye**.
+- **DST days (23 h or 25 h local days)** — cells are indexed by
+  *wall-clock* minute of day, never by epoch offset from midnight. The
+  epoch query window is a generous 25 h and rows are filtered/mapped by
+  local date. On the fall-back day the repeated 1 AM hour occurs twice;
+  a 1440-cell strip cannot show both, so the **second occurrence wins**
+  (last write per wall-clock minute). Day/hour totals use the same rule,
+  so calendar totals and the day view always agree. (Bug found live on
+  2026-11-01: epoch mapping pushed the second 1 AM hour into the 02:xx
+  cells and made collection look "stopped" for the hour after the fallback.)
 
 ## 6. Visual language: state first, volume second
 
