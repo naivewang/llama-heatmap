@@ -373,17 +373,21 @@ async function showDetail(key, isToday, hour, force) {
   if (shownDetail !== tag) return; // stale response
   $("dayDetail").style.display = "block";
   // TRUE-FRAME day: the strip holds the real elapsed minutes of the local
-  // date (1380/1440/1500 cells). A calendar wall-clock hour resolves to the
-  // first block with that label (a skipped spring hour falls back to full day).
+  // date (1380/1440/1500 cells). A calendar wall-clock hour resolves to its
+  // block(s): the fall-back day's repeated hour shows BOTH occurrences (2 h),
+  // a normal hour shows one, a skipped spring hour shows nothing.
   const nBlocks = d.hour_labels.length;
-  let block = null;
-  if (hour != null) {
-    block = d.hour_labels.findIndex(l => l.replace("\u2032", "") === pad(hour));
-    if (block < 0) block = null;
+  const blocks = [];
+  if (hour != null) for (let b = 0; b < nBlocks; b++)
+    if (d.hour_labels[b].replace("\u2032", "") === pad(hour)) blocks.push(b);
+  const isFull = hour == null;
+  if (!isFull && blocks.length === 0) {  // skipped hour: nothing to show
+    shownDetail = null; detailParams = null; return;
   }
-  const isFull = block == null;
-  const start = isFull ? 0 : block * 60;
-  const end = isFull ? d.n_min : start + 60;
+  const first = isFull ? 0 : blocks[0];
+  const last = isFull ? nBlocks - 1 : blocks[blocks.length - 1];
+  const start = first * 60;
+  const end = (last + 1) * 60;
   const nowMin = isToday ? Math.floor((Date.now() / 1000 - d.day_start) / 60) : -1;
   let totP = 0, totG = 0, maxP = 0, maxG = 0;
   for (let i = start; i < end; i++) {
@@ -392,12 +396,12 @@ async function showDetail(key, isToday, hour, force) {
   }
   $("dayLabel").textContent = (isFull
     ? `${key} — per minute · day total: `
-    : `${key} ${d.hour_labels[block]}:00–${d.hour_labels[block]}:59 — per minute · hour total: `) +
+    : `${key} ${blocks.map(b => `${d.hour_labels[b]}:00–59`).join(" + ")} — per minute · hour total: `) +
     `↑${fmtTok(totP)} · ↓${fmtTok(totG)}` + (isFull ? cachePct(d.totals?.cached, totP) : "");
   const grid = $("minGrid");
   grid.innerHTML = "";
   const frag = document.createDocumentFragment();
-  for (let b = isFull ? 0 : block; b < nBlocks; b++) {
+  for (let b = first; b <= last; b++) {
     const lab = document.createElement("div");
     lab.className = "min-label" + (b % 3 === 0 ? " major" : "");
     lab.textContent = d.hour_labels[b];
