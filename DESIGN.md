@@ -131,14 +131,18 @@ Consequences:
   *wall-clock* minute of day, never by epoch offset from midnight. The
   epoch query window is a generous 25 h and rows are filtered/mapped by
   local date.
-  - *Fall-back (25 h)*: the repeated 1 AM hour occurs twice. **Statistics
-    are true** — hour/day/month totals sum *both* occurrences (real work is
-    real work). The 60 display cells can only show one, so the **second
-    occurrence wins** there; the day total therefore exceeds the sum of the
-    visible cells by exactly the first 1 AM hour.
-  - *Spring-forward (23 h)*: the 02:00–02:59 wall-clock hour never existed,
-    so those cells honestly show "no data"; every real minute maps to a
-    unique cell and totals are automatically true.
+  - *Fall-back (25 h)*: the day strip renders all **1500 real minutes** —
+    the repeated 1 AM hour appears twice, labeled `01` and `01′`.
+  - *Spring-forward (23 h)*: the strip renders **1380 minutes**; the
+    nonexistent 02:00 wall-clock hour simply has no block (labels run
+    `00, 01, 03, …`), showing the gap honestly.
+
+  Totals always equal the sum of the visible cells (statistics are true by
+  construction). The monthly calendar stays a 24-bubble-per-day overview:
+  on fall-back days its 01:00 bubble sums *both* occurrences, and clicking
+  it opens the first `01` block of the true-frame day view. The "now"
+  highlight is a real-time offset from `day_start`, so it tracks correctly
+  through the repeated hour.
   (Bug found live on 2026-11-01: epoch mapping pushed the second 1 AM hour
   into the 02:xx cells and made collection look "stopped" for the hour
   after the fallback.)

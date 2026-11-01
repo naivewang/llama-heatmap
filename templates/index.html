@@ -372,29 +372,38 @@ async function showDetail(key, isToday, hour, force) {
   const d = await r.json();
   if (shownDetail !== tag) return; // stale response
   $("dayDetail").style.display = "block";
-  const now = serverNow(); // server tz, not the viewer's browser tz
-  const nowMin = isToday ? now.h * 60 + now.min : -1;
-  const start = hour == null ? 0 : hour * 60;
-  const end = hour == null ? 1440 : start + 60;
+  // TRUE-FRAME day: the strip holds the real elapsed minutes of the local
+  // date (1380/1440/1500 cells). A calendar wall-clock hour resolves to the
+  // first block with that label (a skipped spring hour falls back to full day).
+  const nBlocks = d.hour_labels.length;
+  let block = null;
+  if (hour != null) {
+    block = d.hour_labels.findIndex(l => l.replace("\u2032", "") === pad(hour));
+    if (block < 0) block = null;
+  }
+  const isFull = block == null;
+  const start = isFull ? 0 : block * 60;
+  const end = isFull ? d.n_min : start + 60;
+  const nowMin = isToday ? Math.floor((Date.now() / 1000 - d.day_start) / 60) : -1;
   let totP = 0, totG = 0, maxP = 0, maxG = 0;
   for (let i = start; i < end; i++) {
     if (d.prompt_min[i] != null) { totP += d.prompt_min[i]; maxP = Math.max(maxP, d.prompt_min[i]); }
     if (d.gen_min[i] != null) { totG += d.gen_min[i]; maxG = Math.max(maxG, d.gen_min[i]); }
   }
-  $("dayLabel").textContent = (hour == null
+  $("dayLabel").textContent = (isFull
     ? `${key} — per minute · day total: `
-    : `${key} ${pad(hour)}:00–${pad(hour)}:59 — per minute · hour total: `) +
-    `↑${fmtTok(totP)} · ↓${fmtTok(totG)}` + (hour == null ? cachePct(d.totals?.cached, totP) : "");
+    : `${key} ${d.hour_labels[block]}:00–${d.hour_labels[block]}:59 — per minute · hour total: `) +
+    `↑${fmtTok(totP)} · ↓${fmtTok(totG)}` + (isFull ? cachePct(d.totals?.cached, totP) : "");
   const grid = $("minGrid");
   grid.innerHTML = "";
   const frag = document.createDocumentFragment();
-  for (let h = hour == null ? 0 : hour; h <= (hour == null ? 23 : hour); h++) {
+  for (let b = isFull ? 0 : block; b < nBlocks; b++) {
     const lab = document.createElement("div");
-    lab.className = "min-label" + (h % 3 === 0 ? " major" : "");
-    lab.textContent = pad(h);
+    lab.className = "min-label" + (b % 3 === 0 ? " major" : "");
+    lab.textContent = d.hour_labels[b];
     frag.appendChild(lab);
     for (let m = 0; m < 60; m++) {
-      const idx = h * 60 + m;
+      const idx = b * 60 + m;
       const st = d.cells[idx];
       const pv = d.prompt_min[idx], gv = d.gen_min[idx];
       const div = document.createElement("div");
@@ -402,7 +411,7 @@ async function showDetail(key, isToday, hour, force) {
       div.className = "m" + (st ? " " + st : "") + (idx === nowMin ? " now" : "");
       const [l, r] = halves(st, pv, maxP, gv, maxG, busy);
       div.innerHTML = `<span style="background:${l}"></span><span style="background:${r}"></span>`;
-      div.title = `${pad(h)}:${pad(m)} — ` + (st === "up" ? "up" : st === "down" ? "DOWN" : st === "sleep" ? "asleep" : "no data") +
+      div.title = `${d.hour_labels[b]}:${pad(m)} — ` + (st === "up" ? "up" : st === "down" ? "DOWN" : st === "sleep" ? "asleep" : "no data") +
         ` · ↑${fmtTok(pv)} · ↓${fmtTok(gv)}` +
         (busy ? " · processing" : "");
       frag.appendChild(div);

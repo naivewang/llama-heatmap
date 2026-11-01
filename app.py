@@ -380,72 +380,79 @@ def api_day():
     except ValueError:
         return jsonify({"error": "bad date, use YYYY-MM-DD"}), 400
 
-    # Local days can be 23 or 25 hours long (DST), so the epoch window is
-    # generous and rows are filtered/mapped by WALL-CLOCK date+minute.
-    # On the fall-back day the 1 AM hour occurs twice; a 1440-cell strip
-    # cannot show both, so the second occurrence wins (last write, sorted ts).
-    day_start = int(day.timestamp())
-    start, end = day_start, day_start + 25 * 3600
+    # TRUE-FRAME day: the strip covers the REAL elapsed minutes of the local
+    # date — 1380 (spring-forward), 1440 (normal) or 1500 (fall-back). Index =
+    # minutes after local midnight. On the fall-back day the repeated 1 AM
+    # hour appears twice (blocks "01" and "01′"); on the spring-forward day
+    # the skipped hour simply has no block. Totals equal the sum of the
+    # visible cells in all cases.
+    day_start = int(day.timestamp())  # local midnight, fold=0 (never ambiguous)
+    day_end = int((day + timedelta(days=1)).timestamp())  # next local midnight
+    n_min = (day_end - day_start) // 60
+
     rows = db_conn().execute(
-        "SELECT ts, status FROM samples WHERE ts >= ? AND ts <= ? ORDER BY ts",
-        (start, end),
+        "SELECT ts, status FROM samples WHERE ts >= ? AND ts < ? ORDER BY ts",
+        (day_start, day_end),
     ).fetchall()
     db_conn().close()
 
-    by_min = {}
+    by_off = {}
     for r in rows:
-        dt = datetime.fromtimestamp(r["ts"], TZ)
-        if dt.strftime("%Y-%m-%d") != date_str:
-            continue
-        by_min[dt.hour * 60 + dt.minute] = r["status"]
-
-    cells = [by_min.get(i) for i in range(1440)]
+        by_off[(r["ts"] - day_start) // 60] = r["status"]
+    cells = [by_off.get(i) for i in range(n_min)]
 
     # per-minute token deltas from cumulative /metrics counters.
     # Restart-safe: only diff consecutive rows with the same proc_start;
     # on a proc_start change record the counter value itself (tokens since boot).
-    day_end = end
     rows = db_conn().execute(
         """SELECT ts, proc_start, prompt_total, cached_total, predict_total, busy
-              FROM metrics WHERE ts >= ? AND ts <= ? ORDER BY ts""",
+              FROM metrics WHERE ts >= ? AND ts < ? ORDER BY ts""",
         (day_start - 3600, day_end),
     ).fetchall()
     db_conn().close()
 
-    def wall_clock_map(dm: dict[int, int]) -> list:
-        """{epoch: value} -> 1440 array indexed by wall-clock minute of day."""
-        out = [None] * 1440
-        for ts, v in sorted(dm.items()):
-            dtm = datetime.fromtimestamp(ts, TZ)
-            if dtm.strftime("%Y-%m-%d") == date_str:
-                out[dtm.hour * 60 + dtm.minute] = v  # repeated hour: later occurrence wins
+    def offset_map(dm: dict[int, int]) -> list:
+        out = [None] * n_min
+        for ts, v in dm.items():
+            idx = (ts - day_start) // 60
+            if 0 <= idx < n_min:
+                out[idx] = v
         return out
 
-    def deltas(col):
-        """-> (1440 wall-clock array, TRUE day total).
-        The array can't show the fall-back day's repeated hour twice (second
-        occurrence wins), but the total sums every real minute of the date."""
-        dm = _minute_deltas(rows, col, day_start, day_end)
-        total = sum(v for ts, v in dm.items()
-                    if datetime.fromtimestamp(ts, TZ).strftime("%Y-%m-%d") == date_str)
-        return wall_clock_map(dm), total
-
-    prompt_min, prompt_sum = deltas("prompt_total")
-    cached_min, cached_sum = deltas("cached_total")
-    gen_min, gen_sum = deltas("predict_total")
-    busy_min = wall_clock_map({r["ts"]: r["busy"] for r in rows})
+    prompt_min = offset_map(_minute_deltas(rows, "prompt_total", day_start, day_end - 1))
+    cached_min = offset_map(_minute_deltas(rows, "cached_total", day_start, day_end - 1))
+    gen_min = offset_map(_minute_deltas(rows, "predict_total", day_start, day_end - 1))
 
     # Note: a wake/reload minute (model coming back to VRAM, 0 tokens) is
     # deliberately NOT marked busy — purple means in-flight INFERENCING only;
     # recovery shows as plain idle grey.
+    busy_min = [None] * n_min
+    for r in rows:
+        idx = (r["ts"] - day_start) // 60
+        if 0 <= idx < n_min:
+            busy_min[idx] = r["busy"]
+
+    # hour-block labels: the wall-clock hour at each real-time block; a
+    # repeated hour (fall-back) gets a prime, a skipped hour (spring) no block.
+    hour_labels, prev_h = [], None
+    for i in range(n_min // 60):
+        dt = datetime.fromtimestamp(day_start + i * 3600, TZ)
+        hour_labels.append(f"{dt.hour:02d}" + ("\u2032" if dt.hour == prev_h else ""))
+        prev_h = dt.hour
 
     return jsonify({
-        "date": date_str, "tz": TIMEZONE, "cells": cells,
+        "date": date_str, "tz": TIMEZONE,
+        "day_start": day_start, "n_min": n_min, "hour_labels": hour_labels,
+        "cells": cells,
         "prompt_min": prompt_min,
         "cached_min": cached_min,
         "gen_min": gen_min,
         "busy_min": busy_min,
-        "totals": {"prompt": prompt_sum, "cached": cached_sum, "gen": gen_sum},
+        "totals": {
+            "prompt": sum(v or 0 for v in prompt_min),
+            "cached": sum(v or 0 for v in cached_min),
+            "gen": sum(v or 0 for v in gen_min),
+        },
     })
 
 
