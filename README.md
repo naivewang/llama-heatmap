@@ -87,8 +87,9 @@ Heatmap HTTP port: `app.run(port=5000)` at the bottom of `app.py`.
 
 ## How it works
 
-- A daemon thread appends one row per poll to SQLite:
-  - `samples(ts, status, latency)` — from `/health`
+- A daemon thread polls the `EngineSource` (llama.cpp: `/health` + `/metrics`,
+  both sleep-safe) once a minute and appends through the `Store` (SQLite):
+  - `samples(ts, status, latency)` — from `/health` (+ `/props` sleep flag)
   - `metrics(ts, proc_start, prompt_total, cached_total, predict_total, ...)`
     — cumulative counters + `requests_processing`-derived busy flag from
     `/metrics`, stored as-is.
@@ -127,12 +128,26 @@ loginctl enable-linger $USER    # start at boot even without a login
 ## Project layout
 
 ```
-app.py            # Flask app: polling thread, SQLite, API endpoints
+app.py            # composition root: config, poller thread, API endpoints
+source/           # ENGINE abstraction (which server to watch)
+  base.py           EngineSource protocol + normalized Snapshot
+  llamacpp.py       llama.cpp: /health, /props, /metrics (sleep-safe only)
+store/            # PERSISTENCE abstraction (where minutes live)
+  base.py           Store protocol (plain-dict rows in, plain-dict rows out)
+  sqlite.py         two tables, ~6-month retention, startup migration
+core/             # PURE logic, no I/O
+  deltas.py         restart-safe per-minute counter deltas
 templates/
   index.html      # Single-page dashboard (vanilla JS, no build step)
 requirements.txt
 monitor.db        # created at runtime (gitignored)
 ```
+
+The engine and the database are swappable instantiations: `app.py` only ever
+talks to an `EngineSource` and a `Store`. Watching a different AI engine
+(vLLM, Ollama, …) means adding one file under `source/`; moving off SQLite
+means one file under `store/` — the API contract, core logic and UI are
+unchanged in both cases.
 
 ## Notes & limitations
 

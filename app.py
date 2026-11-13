@@ -1,9 +1,15 @@
 """
 Llama Heatmap
 -------------
-A Flask app that polls a llama.cpp server's /health endpoint every 60 seconds,
-stores each sample in SQLite, and renders a monthly calendar showing per-hour
-status (up / down / no data) on a webpage that auto-refreshes every minute.
+A Flask app that polls an AI server's health and token counters every 60
+seconds, stores each minute in a pluggable store (SQLite by default), and
+renders a monthly calendar of per-hour status + throughput on a webpage
+that auto-refreshes every 59 seconds.
+
+The engine and the database are swappable instantiations: this file only
+talks to an EngineSource and a Store (see the source/, store/ and core/
+packages). Swapping llama.cpp for another engine, or SQLite for another
+backend, means adding one file each — nothing here changes.
 
 Usage:
     export LLAMA_SERVER_URL=http://127.0.0.1:8080   # default
@@ -12,15 +18,16 @@ Usage:
 
 import calendar
 import os
-import re
-import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import requests
 from flask import Flask, jsonify, render_template, request
+
+from core.deltas import minute_deltas
+from source.llamacpp import LlamaCppSource
+from store.sqlite import SqliteStore
 
 # ---------------------------------------------------------------- config ---
 LLAMA_SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://127.0.0.1:8080").rstrip("/")
@@ -29,139 +36,27 @@ TIMEZONE = os.environ.get("MONITOR_TZ", "America/Los_Angeles")  # Pacific
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitor.db")
 TZ = ZoneInfo(TIMEZONE)
 
+# ------------------------------------------------------ instantiation -----
+source = LlamaCppSource(LLAMA_SERVER_URL)   # the engine (sleep-safe endpoints only)
+store = SqliteStore(DB_PATH)                # the persistence
+
 app = Flask(__name__)
-_lock = threading.Lock()
-
-
-# ----------------------------------------------------------------- db ------
-def db_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db() -> None:
-    with db_conn() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS samples (
-                ts        INTEGER NOT NULL,   -- unix epoch seconds, truncated to minute
-                status    TEXT    NOT NULL,   -- 'up' | 'down'
-                latency   REAL,               -- ms, NULL when down
-                PRIMARY KEY (ts)
-            )
-            """
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples (ts)")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS metrics (
-                ts             INTEGER PRIMARY KEY,  -- unix epoch seconds, truncated to minute
-                proc_start     INTEGER,              -- Process-Start-Time-Unix (restart detector)
-                prompt_total   INTEGER,              -- cumulative prompt tokens (excl. cache)
-                cached_total   INTEGER,              -- cumulative cached prompt tokens
-                predict_total  INTEGER,              -- cumulative generated tokens
-                prompt_tps     REAL,                 -- gauge, avg over scrape window
-                predict_tps    REAL,
-                busy           INTEGER               -- 1 if requests_processing > 0 at scrape time (in-flight inference)
-            )
-            """
-        )
-        # migrate older DBs
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(metrics)")}
-        if "busy" not in cols:
-            conn.execute("ALTER TABLE metrics ADD COLUMN busy INTEGER")
-        # keep ~6 months of samples
-        cutoff = int((datetime.now(ZoneInfo("UTC")) - timedelta(days=180)).timestamp())
-        conn.execute("DELETE FROM samples WHERE ts < ?", (cutoff,))
 
 
 # ------------------------------------------------------------- poller ------
-def server_asleep() -> bool | None:
-    """True/False from /props, None if unreachable. /health answers 200 even while
-    the server is asleep, so sleep can only be told from this flag."""
-    try:
-        r = requests.get(f"{LLAMA_SERVER_URL}/props", timeout=5)
-        if r.status_code == 200:
-            return bool(r.json().get("is_sleeping"))
-    except (requests.RequestException, ValueError):
-        pass
-    return None
-
-
-def check_health() -> tuple[str, float | None]:
-    """Return (status, latency_ms). status is 'up', 'sleep' or 'down'."""
-    try:
-        t0 = time.monotonic()
-        r = requests.get(f"{LLAMA_SERVER_URL}/health", timeout=10)
-        latency = (time.monotonic() - t0) * 1000
-        if r.status_code != 200:
-            return "down", latency
-        return ("sleep" if server_asleep() else "up"), latency
-    except requests.RequestException:
-        return "down", None
-
-
-_METRIC_RE = re.compile(r"^llamacpp:(\w+) ([0-9.eE+-]+)$", re.M)
-
-
-def scrape_metrics() -> dict | None:
-    """Fetch /metrics once. Returns parsed counters + process start time + busy flag,
-    or None (endpoint disabled -> 501, server down, or parse failure).
-
-    busy comes from the requests_processing gauge (in-flight requests) — the
-    true 'inferencing in flight' signal, and sleep-safe: /metrics is one of
-    the timer-exempt endpoints, unlike /slots (which would reset
-    --sleep-idle-seconds and wake a sleeping server). A request waiting
-    through a wake/reload shows in requests_deferred, NOT processing, so
-    recovery minutes correctly stay non-purple.
-    Old builds without the gauge fall back to window throughput > 0."""
-    try:
-        r = requests.get(f"{LLAMA_SERVER_URL}/metrics", timeout=10)
-        if r.status_code != 200:
-            return None
-        vals = {k: float(v) for k, v in _METRIC_RE.findall(r.text)}
-        prompt_tps = vals.get("prompt_tokens_seconds", 0.0)
-        predict_tps = vals.get("predicted_tokens_seconds", 0.0)
-        rp = vals.get("requests_processing")
-        busy = (1 if rp > 0 else 0) if rp is not None \
-               else (1 if (prompt_tps > 0 or predict_tps > 0) else 0)
-        return {
-            "proc_start": int(r.headers.get("Process-Start-Time-Unix", 0)) or None,
-            "prompt_total": vals.get("prompt_tokens_total"),
-            "cached_total": vals.get("prompt_tokens_cached_total"),
-            "predict_total": vals.get("tokens_predicted_total"),
-            "prompt_tps": prompt_tps,
-            "predict_tps": predict_tps,
-            "busy": busy,
-        }
-    except (requests.RequestException, ValueError):
-        return None
-
-
 def poller_loop() -> None:
     last_minute = -1
     while True:
         try:
             now = datetime.now(TZ).replace(second=0, microsecond=0)
             if int(now.timestamp()) != last_minute:
-                status, latency = check_health()
-                with db_conn() as conn:
-                    conn.execute(
-                        "INSERT OR REPLACE INTO samples (ts, status, latency) VALUES (?, ?, ?)",
-                        (int(now.timestamp()), status, latency),
-                    )
-                m = scrape_metrics() if status in ("up", "sleep") else None
-                if m:
-                    with db_conn() as conn:
-                        conn.execute(
-                            """INSERT OR REPLACE INTO metrics
-                               (ts, proc_start, prompt_total, cached_total, predict_total, prompt_tps, predict_tps, busy)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (int(now.timestamp()), m["proc_start"], m["prompt_total"],
-                             m["cached_total"], m["predict_total"], m["prompt_tps"], m["predict_tps"], m["busy"]),
-                        )
-                last_minute = int(now.timestamp())
+                ts = int(now.timestamp())
+                status, latency = source.health()
+                store.add_sample(ts, status, latency)
+                snap = source.metrics() if status in ("up", "sleep") else None
+                if snap:
+                    store.add_metrics(ts, snap)
+                last_minute = ts
                 print(f"[{now:%Y-%m-%d %H:%M}] {LLAMA_SERVER_URL} -> {status.upper()}"
                       + (f" ({latency:.0f} ms)" if latency is not None else ""))
         except Exception as e:
@@ -184,43 +79,23 @@ def index():
 
 @app.route("/api/status")
 def api_status():
-    """Latest health sample + live server details (/props; slot badge is
-    synthesized from the last /metrics scrape — see below)."""
-    with db_conn() as conn:
-        row = conn.execute(
-            "SELECT ts, status, latency FROM samples ORDER BY ts DESC LIMIT 1"
-        ).fetchone()
+    """Latest health sample + live server details (source.details). Slot state
+    is SYNTHESIZED from the last poller scrape's busy flag — never call /slots
+    here: this endpoint is hit by the page's 59s auto-refresh, and /slots
+    posts a task to llama.cpp, which resets --sleep-idle-seconds (and wakes a
+    sleeping server). A <=60s-stale state is fine for a monitor."""
+    row = store.latest_sample()
     status, ts, latency = ("unknown", None, None) if row is None else (row["status"], row["ts"], row["latency"])
 
-    details = None
-    try:
-        r = requests.get(f"{LLAMA_SERVER_URL}/props", timeout=5)
-        if r.status_code == 200:
-            p = r.json()
-            details = {
-                "model": p.get("model_alias") or p.get("model_path"),
-                "ftype": p.get("model_ftype"),
-                "n_ctx": (p.get("default_generation_settings") or {}).get("n_ctx"),
-                "total_slots": p.get("total_slots"),
-                "is_sleeping": p.get("is_sleeping"),
-                "build_info": p.get("build_info"),
-            }
-    except requests.RequestException:
-        pass
+    details = source.details()
 
-    # Slot state is SYNTHESIZED from the last poller scrape's busy flag — never
-    # call /slots here: this endpoint is hit by the page's 59s auto-refresh,
-    # and /slots posts a task to llama.cpp, which resets --sleep-idle-seconds
-    # (and wakes a sleeping server). A <=60s-stale state is fine for a monitor.
     slots = None
     if details and details.get("total_slots"):
         if details.get("is_sleeping"):
             state = "asleep"
         else:
-            with db_conn() as conn:
-                mrow = conn.execute(
-                    "SELECT busy FROM metrics ORDER BY ts DESC LIMIT 1").fetchone()
-            state = "processing" if (mrow and mrow["busy"]) else "idle"
+            busy = store.latest_busy()
+            state = "processing" if busy else "idle"
         slots = [{"id": i, "state": state} for i in range(details["total_slots"])]
 
     return jsonify({
@@ -232,28 +107,6 @@ def api_status():
         "details": details,
         "slots": slots,
     })
-
-
-def _minute_deltas(rows, col: str, lo: int, hi: int) -> dict[int, int]:
-    """Per-minute deltas of a cumulative counter, restart-safe (see /api/day).
-    rows: sqlite rows with ts, proc_start, <col>. Returns {ts: delta}."""
-    by_ts = {r["ts"]: r for r in rows}
-    out: dict[int, int] = {}
-    for ts in range(lo, hi + 1, 60):
-        cur = by_ts.get(ts)
-        if cur is None or cur[col] is None:
-            continue
-        prev = by_ts.get(ts - 60)
-        if prev is not None and prev[col] is not None:
-            if prev["proc_start"] == cur["proc_start"]:
-                d = int(cur[col] - prev[col])
-                if d > 0:
-                    out[ts] = d
-            else:
-                # server restarted between scrapes: counter ≈ tokens since restart
-                out[ts] = int(cur[col])
-        # else: first-ever row / collection gap -> unknown
-    return out
 
 
 @app.route("/api/calendar")
@@ -277,11 +130,7 @@ def api_calendar():
     first_day = datetime(year, month, 1, tzinfo=TZ)
     last_day = datetime(year, month, calendar.monthrange(year, month)[1], 23, 59, 59, tzinfo=TZ)
 
-    rows = db_conn().execute(
-        "SELECT ts, status FROM samples WHERE ts >= ? AND ts <= ? ORDER BY ts",
-        (int(first_day.timestamp()), int(last_day.timestamp())),
-    ).fetchall()
-    db_conn().close()
+    rows = store.samples_range(int(first_day.timestamp()), int(last_day.timestamp()))
 
     # bucket by (date_str, hour)
     buckets: dict[tuple[str, int], list[str]] = {}
@@ -312,17 +161,12 @@ def api_calendar():
                 day_cells.append("down")
         cells[key] = day_cells
 
-    # per-30-min token sums (prefill / generated) + day & month totals
-    mrows = db_conn().execute(
-        """SELECT ts, proc_start, prompt_total, cached_total, predict_total
-              FROM metrics WHERE ts >= ? AND ts <= ? ORDER BY ts""",
-        (int(first_day.timestamp()) - 3600, int(last_day.timestamp())),
-    ).fetchall()
-    db_conn().close()
+    # per-minute token sums (prefill / generated) + day & month totals
+    mrows = store.metrics_range(int(first_day.timestamp()) - 3600, int(last_day.timestamp()))
 
-    p_dm = _minute_deltas(mrows, "prompt_total", int(first_day.timestamp()), int(last_day.timestamp()))
-    g_dm = _minute_deltas(mrows, "predict_total", int(first_day.timestamp()), int(last_day.timestamp()))
-    c_dm = _minute_deltas(mrows, "cached_total", int(first_day.timestamp()), int(last_day.timestamp()))
+    p_dm = minute_deltas(mrows, "prompt_total", int(first_day.timestamp()), int(last_day.timestamp()))
+    g_dm = minute_deltas(mrows, "predict_total", int(first_day.timestamp()), int(last_day.timestamp()))
+    c_dm = minute_deltas(mrows, "cached_total", int(first_day.timestamp()), int(last_day.timestamp()))
 
     # TRUE statistics: every real minute counts. On the DST fall-back day the
     # repeated 1 AM hour contributes TWICE to hour/day/month totals (real work
@@ -390,11 +234,7 @@ def api_day():
     day_end = int((day + timedelta(days=1)).timestamp())  # next local midnight
     n_min = (day_end - day_start) // 60
 
-    rows = db_conn().execute(
-        "SELECT ts, status FROM samples WHERE ts >= ? AND ts < ? ORDER BY ts",
-        (day_start, day_end),
-    ).fetchall()
-    db_conn().close()
+    rows = store.samples_range(day_start, day_end, hi_inclusive=False)
 
     by_off = {}
     for r in rows:
@@ -404,12 +244,7 @@ def api_day():
     # per-minute token deltas from cumulative /metrics counters.
     # Restart-safe: only diff consecutive rows with the same proc_start;
     # on a proc_start change record the counter value itself (tokens since boot).
-    rows = db_conn().execute(
-        """SELECT ts, proc_start, prompt_total, cached_total, predict_total, busy
-              FROM metrics WHERE ts >= ? AND ts < ? ORDER BY ts""",
-        (day_start - 3600, day_end),
-    ).fetchall()
-    db_conn().close()
+    rows = store.metrics_range(day_start - 3600, day_end, hi_inclusive=False)
 
     def offset_map(dm: dict[int, int]) -> list:
         out = [None] * n_min
@@ -419,9 +254,9 @@ def api_day():
                 out[idx] = v
         return out
 
-    prompt_min = offset_map(_minute_deltas(rows, "prompt_total", day_start, day_end - 1))
-    cached_min = offset_map(_minute_deltas(rows, "cached_total", day_start, day_end - 1))
-    gen_min = offset_map(_minute_deltas(rows, "predict_total", day_start, day_end - 1))
+    prompt_min = offset_map(minute_deltas(rows, "prompt_total", day_start, day_end - 1))
+    cached_min = offset_map(minute_deltas(rows, "cached_total", day_start, day_end - 1))
+    gen_min = offset_map(minute_deltas(rows, "predict_total", day_start, day_end - 1))
 
     # Note: a wake/reload minute (model coming back to VRAM, 0 tokens) is
     # deliberately NOT marked busy — purple means in-flight INFERENCING only;
@@ -458,7 +293,7 @@ def api_day():
 
 # ----------------------------------------------------------------- main ----
 def main():
-    init_db()
+    store.init()
     threading.Thread(target=poller_loop, daemon=True).start()
     port = int(os.environ.get("PORT", "5000"))
     print(f"Llama heatmap: http://localhost:{port}  (watching {LLAMA_SERVER_URL}, every {POLL_INTERVAL}s)")
