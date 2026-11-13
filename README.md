@@ -128,7 +128,12 @@ loginctl enable-linger $USER    # start at boot even without a login
 ## Project layout
 
 ```
-app.py            # composition root: config, poller thread, API endpoints
+app.py            # composition root: config, instantiation, poller, page
+api/              # the JSON contract the frontend depends on (Blueprint)
+  base.py           ApiContext (handlers reach everything through this)
+  status.py         GET /api/status   health + live details + slot badge
+  month.py          GET /api/calendar per-hour status + token sums
+  day.py            GET /api/day      per-minute status + token deltas
 source/           # ENGINE abstraction (which server to watch)
   base.py           EngineSource protocol + normalized Snapshot
   llamacpp.py       llama.cpp: /health, /props, /metrics (sleep-safe only)
@@ -143,11 +148,12 @@ requirements.txt
 monitor.db        # created at runtime (gitignored)
 ```
 
-The engine and the database are swappable instantiations: `app.py` only ever
-talks to an `EngineSource` and a `Store`. Watching a different AI engine
-(vLLM, Ollama, …) means adding one file under `source/`; moving off SQLite
-means one file under `store/` — the API contract, core logic and UI are
-unchanged in both cases.
+The engine, the database and the API are swappable subpackages: `app.py`
+only ever talks to an `EngineSource` and a `Store`. Watching a different AI
+engine (vLLM, Ollama, …) means adding one file under `source/`; moving off
+SQLite means one file under `store/` — the API contract, core logic and UI
+are unchanged in both cases. The frontend itself knows only the JSON
+contract of `api/`, so it is agnostic to all three.
 
 ## Notes & limitations
 
