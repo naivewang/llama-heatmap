@@ -8,7 +8,7 @@ bubbles** showing uptime and token throughput — prefill (blue) vs. generated
 
 No external services needed: one Python file, one template, one SQLite file.
 
-<img width="1287" height="1224" alt="llama-heatmap screenshot" src="https://github.com/user-attachments/assets/d7feb0de-406b-4ace-a939-cedf5e621017" />
+<img width="1668" height="2216" alt="image" src="https://github.com/user-attachments/assets/4b8c81bc-0cbd-4d1b-a5ee-3eb7cdf8fff0" />
 
 See [DESIGN.md](DESIGN.md) for the full system design — the sleep-safety
 principle, signal sources, delta semantics, and the color language.
